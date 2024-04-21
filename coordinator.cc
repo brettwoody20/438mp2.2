@@ -43,24 +43,32 @@ using csce438::ServerList;
 using csce438::SynchService;
 
 struct zNode{
-    int serverID;
+    int clusterID; 
+    int machineID;
+    bool master;
     std::string hostname;
     std::string port;
-    std::string type;
+    std::string synch_hostname;
+    std::string synch_port;
     std::time_t last_heartbeat;
     bool missed_heartbeat;
     bool isActive();
-
 };
 
-//potentially thread safe 
-std::mutex v_mutex;
+
+//storage of server lists
+std::mutex cluster_mutex;
+
 std::vector<zNode*> cluster1;
 std::vector<zNode*> cluster2;
 std::vector<zNode*> cluster3;
 
-// creating a vector of vectors containing znodes
 std::vector<std::vector<zNode*>> clusters = {cluster1, cluster2, cluster3};
+
+//storage of cluster masters
+std::mutex master_mutex;
+
+std::vector<zNode*> masters = {nullptr, nullptr, nullptr};
 
 
 //func declarations
@@ -82,20 +90,28 @@ bool zNode::isActive(){
 
 class CoordServiceImpl final : public CoordService::Service {
 
-    Status Heartbeat(ServerContext* context, const ServerInfo* serverinfo, Confirmation* confirmation) override {
+    Status Heartbeat(ServerContext* context, const ServerInfo* serverinfo, HBResponse* hbresponse) override {
+        //New functionality
+            //if cluster is empty, add server and set it as master (set master to true and add to master vertex)
+            //if cluster is not empty and doesn't contain the server
+                //add the server, set master as false
+            //if cluster is not empty and contains the machineID, 
+                //maintain heartbeat
+                //return synchronizer and slave IP address (if exist)
+
         zNode* server = nullptr;
 
-        v_mutex.lock();
+        cluster_mutex.lock();
         
         
         //if the server already exists
-        if (!clusters[serverinfo->serverid()-1].empty()) { //serverid currently holds cluster id
-            std::cout << "Server " << serverinfo->serverid() << " heartbeat..." << std::endl;
-            zNode* server = clusters[serverinfo->serverid()-1][0];
+        if (!clusters[serverinfo->clusterid()-1].empty()) { //serverid currently holds cluster id
+            std::cout << "Server " << serverinfo->clusterid() << " heartbeat..." << std::endl;
+            zNode* server = clusters[serverinfo->clusterid()-1][0];
             //if the server missed a hearbeat
             if (server->missed_heartbeat) {
                 //set that it has not missed a heartbeat
-                std::cout << "Server " << serverinfo->serverid() << " reconnected..." << std::endl;
+                std::cout << "Server " << serverinfo->clusterid() << " reconnected..." << std::endl;
                 server->missed_heartbeat = false;
             }
             //set last heartbeat to now
@@ -104,16 +120,16 @@ class CoordServiceImpl final : public CoordService::Service {
         //else, need to create new server in list
         else {
             //create new z node with server info and insert it into cluster
-            std::cout << "New server, id: " << serverinfo->serverid() << std::endl;
+            std::cout << "New server, id: " << serverinfo->clusterid() << std::endl;
             zNode* newServer = new zNode;
-            newServer->serverID = 1; //SERVID
+            newServer->clusterID = 1; //SERVID
             newServer->hostname = serverinfo->hostname();
             newServer->port = serverinfo->port();
             newServer->missed_heartbeat = false;
-            clusters[serverinfo->serverid()-1].push_back(newServer);
+            clusters[serverinfo->clusterid()-1].push_back(newServer);
         }
 
-        v_mutex.unlock();
+        cluster_mutex.unlock();
 
         return Status::OK;
     }
@@ -122,17 +138,19 @@ class CoordServiceImpl final : public CoordService::Service {
     //this function assumes there are always 3 clusters and has math
     //hardcoded to represent this.
     Status GetServer(ServerContext* context, const ID* id, ServerInfo* serverinfo) override {
+        //ToDo: make sure everything is up to date
+
         int clusterId = ((id->id() - 1) % 3 ); //took out the +1 as I'll be using it as an index
 
         std::cout << "Client " << id->id() << " being routed to cluster " << clusterId << std::endl;
 
 
-        v_mutex.lock();
+        cluster_mutex.lock();
 
         if (clusters[clusterId].empty()) {
             std::cerr << "Error: requested server not found" << std::endl;
             serverinfo->set_serverid(-1);
-            v_mutex.unlock();
+            cluster_mutex.unlock();
             return Status::OK;
         }
 
@@ -149,10 +167,46 @@ class CoordServiceImpl final : public CoordService::Service {
             //serverinfo->set_type(z->type); this is defaulted to server for mp 2.1
         }
 
-        v_mutex.unlock();
+        cluster_mutex.unlock();
 
         std::cout << "completed GetServer" << std::endl;
 
+
+        return Status::OK;
+    }
+
+    Status registerSynch(ServerContext* context, const ServerInfo* serverInfo, ID* id) {
+        //passed ip, port, and cluster of synchronizer process
+
+        //assigns it to a pre-existing znode/server
+
+        //based on this server it calculates the machine number number and returns that in id
+        
+        return Status::OK;
+    }
+
+    Status getSynchs(ServerContext* context, const Users* users, ServerList* serverlist) {
+
+        //passed a list of userIDs
+
+        //creates an empty list of hostnames and ports (see server List function)
+
+        //for each id
+
+            //calculate the cluster that the id is in
+
+            //add the IP address of each synchronizer in that cluster to the lists
+
+        //insert those lists into serverlist (again see server's List function)
+
+        return Status::OK;
+    }
+
+    Status getAllSynchs (ServerContext* context, const Confirmation* confrimation, ServerList* ServerList) {
+
+        //for each cluster
+            //for each machine
+                //add the synch hostname and port to serverList (See Server's List function)
 
         return Status::OK;
     }
@@ -203,12 +257,19 @@ int main(int argc, char** argv) {
 
 
 void checkHeartbeat(){
+    //NEW FUNCTIONALITY: 
+    // if it has been more than 10 seconds since last heartbeat and it has already missed one
+        //don't set last heartbeat
+        //if master
+            //make not master
+            //make next server in cluster master
+
     while(true){
         //check servers for heartbeat > 10
         //if true turn missed heartbeat = true
         // Your code below
 
-        v_mutex.lock();
+        cluster_mutex.lock();
 
         // iterating through the clusters vector of vectors of znodes
         for (auto& c : clusters){

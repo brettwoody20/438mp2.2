@@ -74,8 +74,13 @@ using csce438::ListReply;
 using csce438::Request;
 using csce438::Reply;
 using csce438::CoordService;
+using csce438::HBResponse;
 using csce438::ServerInfo;
 using csce438::Confirmation;
+using csce438::SynchService;
+using csce438::ID;
+using csce438::Users;
+using csce438::Post;
 
 
 struct Client {
@@ -92,6 +97,15 @@ struct Client {
 
 //Vector that stores every client (and their data)
 std::vector<Client*> client_db;
+
+bool master;
+
+std::string synchPort;
+
+std::string slaveHostname;
+std::String slavePort;
+
+std::unique_ptr<SynchService::Stub> stub_coord
 
 
 
@@ -131,6 +145,14 @@ class SNSServiceImpl final : public SNSService::Service {
   //Func: verify the user exists and then add it to the appropriate lists of following/followers
   //Outputs: replies with the success of the command. 
   //Reply:  S : succes, I : Invalid users.
+
+  /*ToDo:
+  -If master, make call to slave
+  -passed u1 wants to follow u2
+  -add u2 into u1's following and replicate that in local files
+  -if u2 is on cluster (can use mathematical equation or search users) then add it to u2's files
+    otherwise make new follow rpc to synch
+  */
   Status Follow(ServerContext* context, const Request* request, Reply* reply) override {
 
     /*********
@@ -160,6 +182,7 @@ class SNSServiceImpl final : public SNSService::Service {
   //Func: verify the users exists, remove them from appropriate lists of following/followers
   //Outputs: replies with success of the command.
   //Reply: S : succes, I : invalid user, U : doesn't follow
+
   Status UnFollow(ServerContext* context, const Request* request, Reply* reply) override {
 
     /*********
@@ -203,6 +226,10 @@ class SNSServiceImpl final : public SNSService::Service {
   //Func: Initializes user in system if they don't exist, logs them in if they aren't logged in already.
   //Outputs: replies with success of the command.
   //Reply: S : succes, F : failure (logged in already)
+
+  /*ToDo:
+  -upon login, create directory for user
+  */
   Status Login(ServerContext* context, const Request* request, Reply* reply) override {
     
     /*********
@@ -236,7 +263,11 @@ class SNSServiceImpl final : public SNSService::Service {
     return Status::OK;
   }
 
-
+  //ToDo: 
+  //-write and read from correct files
+  //-server checks if file was updated every 30 seconds instead of directly streaming posts
+  //-if client posts and is master, use Post rpc to slave
+  //-if client posts, synchronize local user files if they are affected, then use newPostServ rpc to synch
   Status Timeline(ServerContext* context, 
 		ServerReaderWriter<Message, Message>* streem) override {
     
@@ -282,6 +313,16 @@ class SNSServiceImpl final : public SNSService::Service {
       }
     }
     
+    return Status::OK;
+  }
+
+  /*ToDo:
+  -passed message that u1 posts
+  -update u1's posts file
+  -update all of u1's followers (that are local) timelines
+  */
+  Status Post(ServerContext* context, const Message* message,  Reply* reply) {
+
     return Status::OK;
   }
 
@@ -393,6 +434,34 @@ class SNSServiceImpl final : public SNSService::Service {
       return ret;
     }
 
+    std::vector<std::string> get_lines_from_file(std::string filename){
+      std::vector<std::string> users;
+      std::string user;
+      std::ifstream file; 
+      file.open(filename);
+      if(file.peek() == std::ifstream::traits_type::eof()){
+        //return empty vector if empty file
+        //std::cout<<"returned empty vector bc empty file"<<std::endl;
+        file.close();
+        return users;
+      }
+      while(file){
+        getline(file,user);
+
+        if(!user.empty())
+          users.push_back(user);
+      } 
+
+      file.close();
+
+      //std::cout<<"File: "<<filename<<" has users:"<<std::endl;
+      /*for(int i = 0; i<users.size(); i++){
+        std::cout<<users[i]<<std::endl;
+      }*/ 
+
+      return users;
+    }
+
 
 };
 
@@ -400,33 +469,40 @@ class SNSServiceImpl final : public SNSService::Service {
 void RunServer(int clusterId, int serverId, std::string coordIP,
                 std::string coordPort, std::string port_no) {
           
-  //TODO: create new channel and stub for coordinator
+  //create new channel and stub for coordinator
   std::cout << "Attempting to open channel with coordinator..." << std::endl;
   std::string coord_address = coordIP+":"+coordPort;
   auto coordChan = grpc::CreateChannel(coord_address, grpc::InsecureChannelCredentials());
   std::unique_ptr<CoordService::Stub> stub_coord = std::make_unique<CoordService::Stub>(coordChan);
 
-  //TODO: create thread to continually send heartbeats to coordinator
+  //create thread to continually send heartbeats to coordinator
 
   //create server info object to be repeatedly sent to coordinator
   ServerInfo serverInfo;
-  serverInfo.set_serverid(clusterId); //currently using server_id slot to communicate clusterId as all serverId are 1
+  serverInfo.set_clusterid(clusterId);
   serverInfo.set_hostname("0.0.0.0");
   serverInfo.set_port(port_no);
   
   //pass the stub and serverInfo to another thread where it will be continually sent to the coordinator
   std::thread heartBeat([&stub_coord, serverInfo]() {
-    Confirmation confirmation;
+    HBResponse response;
     while(1) {
       std::cerr << "Sending heartbeat..." << std::endl;
       ClientContext context;
-      grpc::Status status = stub_coord->Heartbeat(&context, serverInfo, &confirmation);
+      grpc::Status status = stub_coord->Heartbeat(&context, serverInfo, &response);
+      //#####ToDo: alter master status, slave/synchID based on response
+
 
       sleep(5);
     }
   });
 
-  //ToDo: CONSTRUCT SERVER ADDRESS FROM NEW ARGUMENTS
+  //ToDo: CREATE THREAD THAT SYNCHS MEMORY EVERY 20 SECONDS
+    //for each user
+      //if any of their files have been updateed in last 20 seconds
+        //read that file into memory (following, followers, timeline)
+
+  //CONSTRUCT SERVER ADDRESS FROM NEW ARGUMENTS
   //construct server address
   std::string server_address = "0.0.0.0:"+port_no;
   //create instance of SNSSServiceImpl to implement grpc methods

@@ -7,93 +7,80 @@ import "google/protobuf/timestamp.proto";
 // These are the different functionalities exposed by service
 // ------------------------------------------------------------
 
-//Init and Heartbeat potentially redundant
+
 service CoordService{
-    rpc Heartbeat (ServerInfo) returns (Confirmation) {}
+    //for servers
+    rpc Heartbeat (ServerInfo) returns (HBResponse) {}
+
+    //for clients
     rpc GetServer (ID) returns (ServerInfo) {}
-    /* // ZooKeeper API here */
-    /* // Create a path and place data in the znode */
-    /* rpc create (PathAndData) returns (Status) {} */
-    /* // Check if a path exists (checking if a Master is elected */
-    /* rpc exists (Path) returns (Status) {} */
 
-    rpc GetAllFollowerServers (ID) returns (ServerList) {}
-    rpc GetFollowerServer (ID) returns (ServerInfo) {}
-
+    //for synchronizers
+    //returned id is the machine number for the synchronizer
+    rpc registerSynch (ServerInfo) returns (ID) {} 
+    rpc getSynchs (Users) returns (ServerList) {}
+    rpc getAllSynchs (Confirmation) returns (ServerList) {}
 }
 
-//server info message definition
+
+// SynchService definition
+service SynchService{
+    //for synchronizers
+    rpc newClientSynch (ID) returns (Confirmation) {}
+    rpc newFollowSynch (Users) returns (Confirmation) {}
+    rpc newPostSynch (Post) returns (Confirmation) {}
+
+    //for servers
+    rpc newClientServ (ID) returns (Confirmation) {}
+    rpc newFollowServ (Users) returns (Confirmation) {}
+    rpc newPostServ (Post) returns (Confirmation) {}
+}
+
 message ServerInfo{
-    int32 serverID = 1;
-    string hostname = 2;
-    string port = 3;
-    string type = 4;
+    int32 clusterID = 1;
+    int32 machineID = 2;
+    string hostname = 3;
+    string port = 4;
 }
-// TODO: check which extra stuff in the coordinator.proto you dont need
 
-//confirmation message definition
+message ServerList{
+    repeated int32 clusterID = 1;
+    repeated int32 machineID = 2;
+    repeated string hostname = 3;
+    repeated string port = 4;
+}
+
+message MachineInfo{
+    int32 machine = 1;
+}
+
+//for the response of heartbeat
+message HBResponse {
+    bool master = 1;
+    string synchPort = 2;
+    string slaveHostName = 3;
+    string slavePort = 4;
+}
+
 message Confirmation{
     bool status = 1;
 }
 
-//id message definition
 message ID{
     int32 id = 1;
 }
 
+message Users{
+    repeated int32 users = 1; 
+}
 
-//two repeated string lists of each entry in a users 
-//Timeline (TL) and Follower List (FL)
-// TLFL definition
-message TLFL{
-    bool status = 1;
-    repeated string TL = 2; 
-    repeated string FL = 3; 
+message Post {
+  string username = 1;
+  string post = 2;
+  google.protobuf.Timestamp timestamp = 3;
 }
 
 
-//list of all users known of by given follower synchronizer
-// AllUsers definition
-message AllUsers{
-    repeated string users = 1; 
-}
 
-
-// ServerList definition
-message ServerList{
-    repeated int32 serverID = 1;
-    repeated string hostname = 2;
-    repeated string port = 3;
-    repeated string type = 4;
-}
-
-
-//TODO:
-//potentially add a wake up synchronization rpc to be made from
-//coordinator when it detects a server reconnects after being off
-// SynchService definition
-service SynchService{
-    rpc GetAllUsers(Confirmation) returns (AllUsers) {}
-    rpc GetTLFL(ID) returns (TLFL) {}
-    rpc ResynchServer(ServerInfo) returns (Confirmation) {}
-
-}
-
-
-/* // PathAndData definition for rpc create */
-/* message PathAndData{ */
-/*     string path = 1; */
-/*     string data = 2; */
-/* } */
-
-/* // path definition for rpc exists */
-/* message Path{ */
-/*     string path = 1; */
-/* } */
-
-/* // status definition for rpc exists and create */
-/* message Status{ */
-/*     bool status = 1; */
-/* } */
 
 

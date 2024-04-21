@@ -360,7 +360,6 @@ IServerInfo Client::GetServer() {
       serve.serverID = serverInfo.serverid();
       serve.hostname = serverInfo.hostname();
       serve.port = serverInfo.port();
-      serve.type = IType::SERVER;
     }
   }
 

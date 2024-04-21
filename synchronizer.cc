@@ -43,11 +43,13 @@ using csce438::CoordService;
 using csce438::ServerInfo;
 using csce438::Confirmation;
 using csce438::ID;
+using csce438::Users;
 using csce438::ServerList;
 using csce438::SynchService;
-using csce438::AllUsers;
-// tl = timeline, fl = follow list
-using csce438::TLFL;
+using csce438::Post;
+
+int clusterID; //calculated from syncID
+int machineID; //returned from coord
 
 int synchID = 1;
 std::vector<std::string> get_lines_from_file(std::string);
@@ -58,6 +60,66 @@ std::vector<std::string> get_tl_or_fl(int, int, bool);
 std::unique_ptr<csce438::CoordService::Stub> coordinator_stub_;
 
 class SynchServiceImpl final : public SynchService::Service {
+    
+    /*ToDo:
+    -passed a new client, add it to the list of clients in machine directory
+    -add "u1" as "1" in file
+    */
+    Status newClientSynch (ServerContext* context, const ID* id, Confrimation* confirmation) {
+
+        return Status::OK;
+    }
+
+    /*ToDo:
+    -passed u1, u2 where u1 is following u2
+    -add u1 to u2 list of followers in u2/followers.txt
+    */
+    Status newFollowSynch (ServerContext* context, const Users* users, Confrimation* confrimation) {
+
+        return Status::OK;
+    }
+
+    /*ToDo:
+    -passed a post from u1
+    -for all users, ux, that follow u1, add it to their timeline: ux/timeline.txt
+    */
+    Status newPostSynch (ServerContext* context, const Post* post, Confrimation* confrimation) {
+        
+        return Status::OK;
+    }
+
+    /*ToDo:
+    -passed u1 as new user
+    -call coord rpc getAllSynchs
+    -call rpc newClientSynch on all servers returned
+    */
+    Status newClientServ (ServerContext* context, const ID* id, Confrimation* confirmation) {
+
+        return Status::OK;
+    }
+
+    /*ToDo:
+    -passed u1, u2 where u1 is following u2
+    -call coord rpc getSynchs and pass u2
+    -call rpc newFollowSynch on the servers returned
+    */
+    Status newFollowServ (ServerContext* context, const Users* users, Confrimation* confrimation) {
+
+        return Status::OK;
+    }
+
+    /*ToDo:
+    -passed a post from u1
+    -gets list of followers from u1/followers.txt
+    -calls coord rpc getSynchs and pass list of followers
+    -calls newPostSynch on all the servers returned
+    */
+    Status newPostServ (ServerContext* context, const Post* post, Confrimation* confrimation) {
+        
+        return Status::OK;
+    }
+    
+    
     Status GetAllUsers(ServerContext* context, const Confirmation* confirmation, AllUsers* allusers) override{
         //std::cout<<"Got GetAllUsers"<<std::endl;
         std::vector<std::string> list = get_all_users_func(synchID);
@@ -298,3 +360,13 @@ std::vector<std::string> get_tl_or_fl(int synchID, int clientID, bool tl){
     }
 
 }
+
+
+
+//creates connection with coordinator
+//registers with coordinator
+
+//listens for service calls from server
+    //upon those calls call the server and then multicast to other synchronizers
+
+//listens for service calls from other synchronizers
