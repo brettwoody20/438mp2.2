@@ -114,7 +114,7 @@ class CoordServiceImpl final : public CoordService::Service {
             curr->last_heartbeat = getTimeNow();
 
             hbresponse->set_master(curr->master);
-            hbresponse->set_synchport(curr->synch_hostname);
+            hbresponse->set_synchport(curr->synch_port);
             zNode* slave = getSlave(curr->clusterID);
             if (curr->master && slave != nullptr && slave != curr) {
                 hbresponse->set_slavehostname(slave->hostname);
@@ -150,6 +150,9 @@ class CoordServiceImpl final : public CoordService::Service {
             std::string newDir = "data/cluster" + std::to_string(newServer->clusterID) + "/machine" + std::to_string(newServer->machineID);
             std::filesystem::create_directories(newDir);
 
+            std::ofstream newFile(newDir+"/clients.txt");
+            newFile.close();
+
             hbresponse->set_master(false);
             hbresponse->set_synchport("null");
             hbresponse->set_slavehostname("null");
@@ -160,7 +163,6 @@ class CoordServiceImpl final : public CoordService::Service {
             //create new z node with server info and insert it into cluster
             //std::cerr << "Empty:" << check1 << " Contained:" << check2 << std::endl;
             std::cout << "New master server, cluster" << serverinfo->clusterid() << " server" << serverinfo->machineid() << std::endl;
-
 
             zNode* newServer = new zNode;
             newServer->clusterID = serverinfo->clusterid();
@@ -185,6 +187,9 @@ class CoordServiceImpl final : public CoordService::Service {
 
             std::string newDir = "data/cluster" + std::to_string(newServer->clusterID) + "/machine" + std::to_string(newServer->machineID);
             std::filesystem::create_directories(newDir);
+
+            std::ofstream newFile(newDir+"/clients.txt");
+            newFile.close();
 
             hbresponse->set_master(true);
             hbresponse->set_synchport("null");
@@ -242,8 +247,19 @@ class CoordServiceImpl final : public CoordService::Service {
         //passed ip, port, and cluster of synchronizer process
 
         //assigns it to a pre-existing znode/server
-
         //based on this server it calculates the machine number number and returns that in id
+        cluster_mutex.lock();
+        std::cerr << "got synchronizer on port " << serverInfo->port() << std::endl;
+        for (zNode* s : clusters[serverInfo->clusterid()-1]) {
+            if (s->synch_port == "null") {
+                s->synch_hostname = serverInfo->hostname();
+                s->synch_port = serverInfo->port();
+                id->set_id(s->machineID);
+                break;
+            }
+        }
+        cluster_mutex.unlock();
+
         
         return Status::OK;
     }
