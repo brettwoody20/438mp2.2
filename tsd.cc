@@ -40,6 +40,9 @@
 #include <sstream>
 #include <iostream>
 #include <memory>
+#include <filesystem>
+#include <fcntl.h>
+#include <semaphore.h>
 #include <string>
 #include <cstring>
 #include <algorithm>
@@ -98,6 +101,9 @@ struct Client {
 //Vector that stores every client (and their data)
 std::vector<Client*> client_db;
 
+
+int clusterID;
+int machineID;
 bool master;
 
 std::string synchPort = "null";
@@ -174,6 +180,16 @@ class SNSServiceImpl final : public SNSService::Service {
     u1->client_following.push_back(u2);
     u2->client_followers.push_back(u1);
 
+    std::string machineDir = "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + "/";
+
+    appendText(u2->username, machineDir + "u" + u1->username + "/following");
+    if (containsUser(u2->username)) {
+      appendText(u1->username, machineDir + "u" + u2->username + "/followers");
+    } else if (master) {
+      //make call to slave for u1 following u2
+      //make call to synchronizer for u1 following u2
+    }
+
     reply->set_msg("S");
     
     return Status::OK; 
@@ -241,15 +257,25 @@ class SNSServiceImpl final : public SNSService::Service {
 
     //if the client was not found (DNE) then create it and add it to the database
     if (c == nullptr) {
+      std::cerr << "adding new user" << std::endl;
       c = new Client;
       c->username = request->username();
       client_db.push_back(c);
       //create new files to store data about its timeline
-      std::ofstream postsFile(c->username+"_posts.txt");
-      std::ofstream timelineFile(c->username+"_timeline.txt");
+      std::string userDir = "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + "/u" + c->username;
+      std::cerr << userDir << std::endl;
+      std::filesystem::create_directories(userDir);
+      std::ofstream postsFile(userDir + "/posts.txt");
+      std::ofstream timelineFile(userDir + "/timeline.txt");
+      std::ofstream followingFile(userDir + "/following.txt");
+      std::ofstream followerFile(userDir + "/followers.txt");
       postsFile.close();
       postsFile.close();
+      followingFile.close();
+      followerFile.close();
 
+      appendText(c->username, "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + "/clients");
+      //if master make call to slave and synchronizer that user logged in
     }
 
     //NOTE: FOR 2.2 REQUIREMENTS, THE LOGIC THAT STOPPED TWO USERS FROM SIGNING IN WHEN CONNECTED HAS BEED REMOVED
@@ -346,6 +372,22 @@ class SNSServiceImpl final : public SNSService::Service {
 
     //adds a post to the file by reading the file into memory and then re-writing it with the post at the top
     int appendPost(std::string ffo, std::string filename) {
+
+      std::string semName = "/c"+std::to_string(clusterID)+"m"+std::to_string(machineID);
+
+      sem_t *sem = sem_open(semName.c_str(), O_CREAT , 0644, 1);
+      if (sem == SEM_FAILED) {
+          std::cerr << "Failed to open semaphore" << std::endl;
+          return 1;
+      }
+
+      // Wait for the semaphore
+      if (sem_wait(sem) == -1) {
+          std::cerr << "Failed to wait for semaphore" << std::endl;
+          sem_close(sem);
+          return 1;
+      }
+
       // Open the file for reading
       std::ifstream inputFile(filename+".txt");
       if (!inputFile.is_open()) {
@@ -371,7 +413,60 @@ class SNSServiceImpl final : public SNSService::Service {
       // Close the output file
       outputFile.close();
 
+      // Post the semaphore
+      if (sem_post(sem) == -1) {
+          std::cerr << "Failed to post semaphore" << std::endl;
+      }
+
+      // Close the semaphore
+      sem_close(sem);
+
+      // Unlink the named semaphore
+      sem_unlink(semName.c_str());
+
       return 0;
+    }
+
+    int appendText(std::string text, std::string filename) {
+
+      std::string file = filename + ".txt";
+
+      std::string semName = "/c"+std::to_string(clusterID)+"m"+std::to_string(machineID);
+
+      sem_t *sem = sem_open(semName.c_str(), O_CREAT , 0644, 1);
+      if (sem == SEM_FAILED) {
+          std::cerr << "Failed to open semaphore" << std::endl;
+          return -1;
+      }
+
+      // Wait for the semaphore
+      if (sem_wait(sem) == -1) {
+          std::cerr << "Failed to wait for semaphore" << std::endl;
+          sem_close(sem);
+          return -1;
+      }
+
+      // Open the file in append mode
+      std::ofstream outFile(file, std::ios::app);
+      if (outFile.is_open()) {
+          outFile << text <<std::endl;
+          outFile.close();
+      } else {
+          std::cerr << "Unable to open file: " << filename << std::endl;
+      }
+
+      // Post the semaphore
+      if (sem_post(sem) == -1) {
+          std::cerr << "Failed to post semaphore" << std::endl;
+      }
+
+      // Close the semaphore
+      sem_close(sem);
+
+      // Unlink the named semaphore
+      sem_unlink(semName.c_str());
+
+      return 1;
     }
 
     //formats a string og the Message
@@ -464,6 +559,24 @@ class SNSServiceImpl final : public SNSService::Service {
       }*/ 
 
       return users;
+    }
+
+    bool containsUser(std::string username) {
+      for (auto c : client_db) {
+        if (c->username == username) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    Client* findUser(std::string username) {
+      for (Client* c : client_db) {
+        if (c->username == username) {
+          return c;
+        }
+      }
+      return nullptr;
     }
 
 
@@ -570,6 +683,8 @@ int main(int argc, char** argv) {
   std::string log_file_name = std::string("server-") + port;
   google::InitGoogleLogging(log_file_name.c_str());
   log(INFO, "Logging Initialized. Server starting...");
+  clusterID = clusterId;
+  machineID = serverId;
   RunServer(clusterId, serverId, coordIP, coordPort, port);
 
   return 0;

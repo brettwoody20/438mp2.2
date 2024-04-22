@@ -222,17 +222,16 @@ class CoordServiceImpl final : public CoordService::Service {
             return Status::OK;
         }
 
-        zNode* z = clusters[clusterId][0];
+        zNode* z = getMaster(clusterId+1);
         //if server isn't active, return a -1
         if (z == nullptr || !z->active) {
             serverinfo->set_machineid(-1);
         }
         //if server is active, reply with its values
         else {
-            serverinfo->set_machineid(1);
+            serverinfo->set_machineid(z->machineID);
             serverinfo->set_hostname(z->hostname);
             serverinfo->set_port(z->port);
-            //serverinfo->set_type(z->type); this is defaulted to server for mp 2.1
         }
 
         cluster_mutex.unlock();

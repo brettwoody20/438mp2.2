@@ -1,7 +1,8 @@
 # Hack: utf8_range (which is protobuf's dependency) currently doesn't have a pkgconfig file, so we need to explicitly
 # tweak the list of libraries to link against to fix the build.
 
-PROTOBUF_UTF8_RANGE_LINK_LIBS = -lutf8_validity
+PROTOBUF_UTF8_RANGE_LINK_LIBS = -lutf8_validity 
+EXTRA_LIBS = -lpthread -lrt
 
 export PKG_CONFIG_PATH = /home/csce438/.local/lib/pkgconfig:/home/csce438/grpc/third_party/re2:/home/csce438/.local/share/pkgconfig/
 
@@ -15,12 +16,14 @@ CXXFLAGS += -std=c++17 -g
 ifeq ($(SYSTEM),Darwin)
 LDFLAGS += -L/usr/local/lib `pkg-config --libs --static protobuf grpc++  `\
            $(PROTOBUF_UTF8_RANGE_LINK_LIBS) \
+		   $(EXTRA_LIBS) \
            -pthread\
            -lgrpc++_reflection\
            -ldl
 else
 LDFLAGS += -L/usr/local/lib `pkg-config --libs --static protobuf grpc++  `\
            $(PROTOBUF_UTF8_RANGE_LINK_LIBS) \
+		   $(EXTRA_LIBS) \
            -pthread\
            -Wl,--no-as-needed -lgrpc++_reflection -Wl,--as-needed\
            -ldl -lglog

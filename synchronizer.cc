@@ -95,6 +95,19 @@
         */
         Status newClientServ (ServerContext* context, const ID* id, Confirmation* confirmation) {
 
+            ServerList serverList;
+            ClientContext context2;
+
+            coordinator_stub->getAllSynchs(&context2, *confirmation, &serverList);
+
+            std::unique_ptr<SynchService::Stub> synch_stub;
+
+            for (int i = 0; i < serverList.hostname().size(); i++) {
+                synch_stub = std::unique_ptr<SynchService::Stub>(SynchService::NewStub(grpc::CreateChannel(serverList.hostname()[i]+":"+serverList.port()[i], grpc::InsecureChannelCredentials())));
+                Confirmation check;
+                synch_stub->newClientSynch(&context2, *id, &check);
+            }
+
             return Status::OK;
         }
 
