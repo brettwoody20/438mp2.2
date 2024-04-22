@@ -183,7 +183,7 @@
         //send init heartbeat
         grpc::Status status = coordinator_stub->registerSynch(&context, serverInfo, &id);
 
-        if (!status.ok()) {
+        if (!status.ok() || id.id() == -1) {
             std::cerr << "Error Connecting to Coordinator. Restart to try again." << std::endl;
             exit(1);
         }
@@ -194,49 +194,46 @@
 
         //set up as server
         //localhost = 127.0.0.1
-        std::string server_address("localhost"+port_no);
+        std::string server_address("127.0.0.1:"+port_no);
+
         SynchServiceImpl service;
+
         //grpc::EnableDefaultHealthCheckService(true);
         //grpc::reflection::InitProtoReflectionServerBuilderPlugin();
+
         ServerBuilder builder;
-        // Listen on the given address without any authentication mechanism.
         builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
-        // Register "service" as the instance through which we'll communicate with
-        // clients. In this case it corresponds to an *synchronous* service.
         builder.RegisterService(&service);
-        // Finally assemble the server.
         std::unique_ptr<Server> server(builder.BuildAndStart());
+
+        if (!server) {
+            std::cerr << "Failed to start server on " << server_address << std::endl;
+            exit(1);
+        }
+        
         std::cout << "Server listening on " << server_address << std::endl;
 
 
-        //setup coordinator stub
-        //std::cout<<"synchronizer stub"<<std::endl;
-        //std::string target_str = coordIP + ":" + coordPort;
-        //coordinator_stub = std::unique_ptr<CoordService::Stub>(CoordService::NewStub(grpc::CreateChannel(target_str, grpc::InsecureChannelCredentials())));
-        //std::cout<<"MADE STUB"<<std::endl;
-
         //std::thread t1(run_synchronizer,coordIP, coordPort, port_no, synchID);
 
-        /*
+
+        // Wait for the server to shutdown. Note that some other thread must be
+        server->Wait();
+    }
+
+
+    /*
         TODO List:
         -Implement service calls
         -Set up initial single heartbeat to coordinator
         -Set up thread to run synchronizer algorithm
         */
-
-        // Wait for the server to shutdown. Note that some other thread must be
-        // responsible for shutting down the server for this call to ever return.
-        server->Wait();
-    }
-
-
-
     int main(int argc, char** argv) {
 
     int opt = 0;
-    std::string coordIP;
-    std::string coordPort;
-    std::string port = "3029";
+    std::string coordIP = "127.0.0.1";
+    std::string coordPort = "9090";
+    std::string port = "9001";
 
     while ((opt = getopt(argc, argv, "h:k:p:i:")) != -1){
         switch(opt) {

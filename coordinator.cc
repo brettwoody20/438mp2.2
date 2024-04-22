@@ -255,11 +255,12 @@ class CoordServiceImpl final : public CoordService::Service {
                 s->synch_hostname = serverInfo->hostname();
                 s->synch_port = serverInfo->port();
                 id->set_id(s->machineID);
-                break;
+                cluster_mutex.unlock();
+                return Status::OK;
             }
         }
         cluster_mutex.unlock();
-
+        id->set_id(-1);
         
         return Status::OK;
     }
