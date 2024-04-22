@@ -492,7 +492,7 @@ void RunServer(int clusterId, int serverId, std::string coordIP,
   std::thread heartBeat([&stub_coord, serverInfo]() {
     HBResponse response;
     while(1) {
-      std::cerr << "Sending heartbeat..." << std::endl;
+      //std::cerr << "Sending heartbeat..." << std::endl;
       ClientContext context;
       grpc::Status status = stub_coord->Heartbeat(&context, serverInfo, &response);
       //#####ToDo: alter master status, slave/synchID based on response

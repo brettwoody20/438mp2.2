@@ -54,7 +54,7 @@ struct zNode{
     std::string synch_port;
     std::time_t last_heartbeat;
     bool missed_heartbeat;
-    bool isActive();
+    bool active;
 };
 
 
@@ -67,10 +67,8 @@ std::vector<zNode*> cluster3;
 
 std::vector<std::vector<zNode*>> clusters = {cluster1, cluster2, cluster3};
 
-//storage of cluster masters
-std::mutex master_mutex;
-
-std::vector<zNode*> masters = {nullptr, nullptr, nullptr};
+// std::mutex masters_mutex;
+// std::vector<zNode*> masters = {nullptr, nullptr, nullptr};
 
 
 //func declarations
@@ -79,15 +77,6 @@ std::time_t getTimeNow();
 void checkHeartbeat();
 
 
-bool zNode::isActive(){
-    bool status = false;
-    if(!missed_heartbeat){
-        status = true;
-    }else if(difftime(getTimeNow(),last_heartbeat) < 10){
-        status = true;
-    }
-    return status;
-}
 
 
 class CoordServiceImpl final : public CoordService::Service {
@@ -106,30 +95,30 @@ class CoordServiceImpl final : public CoordService::Service {
         cluster_mutex.lock();
 
         bool check1 = !clusters[serverinfo->clusterid()-1].empty();
-        bool check2 = clusterContains(serverinfo->clusterid()-1, serverinfo->machineid());
+        bool check2 = clusterContains(serverinfo->clusterid(), serverinfo->machineid());
 
         
         
         //if cluster is not empty and contains the machineID
         if (check1 && check2) { //serverid currently holds cluster id
-            std::cout << "Cluster" << serverinfo->clusterid() << " Server" << serverinfo->machineid() << " heartbeat1..." << std::endl;
-            zNode* server = clusters[serverinfo->clusterid()-1][0];
+            zNode* curr = getNode(serverinfo->clusterid(), serverinfo->machineid());
+            std::cerr << "heartbeat from cluster" << curr->clusterID << " server" << curr->machineID << std::endl;
             //if the server missed a hearbeat
-            if (server->missed_heartbeat) {
+            if (curr->missed_heartbeat) {
                 //set that it has not missed a heartbeat
-                std::cout << "Server " << serverinfo->clusterid() << " reconnected..." << std::endl;
-                server->missed_heartbeat = false;
+                std::cout << "Server " << curr->clusterID << " reconnected..." << std::endl;
+                curr->missed_heartbeat = false;
+                curr->active = true;
             }
             //set last heartbeat to now
-            server->last_heartbeat = getTimeNow();
-
-            zNode* curr = getNode(serverinfo->clusterid(), serverinfo->machineid());
+            curr->last_heartbeat = getTimeNow();
 
             hbresponse->set_master(curr->master);
             hbresponse->set_synchport(curr->synch_hostname);
-            if (curr->master) {
-                hbresponse->set_slavehostname(clusters[curr->clusterID-1][curr->machineID]->hostname);
-                hbresponse->set_slaveport(clusters[curr->clusterID-1][curr->machineID]->port);
+            zNode* slave = getSlave(curr->clusterID);
+            if (curr->master && slave != nullptr && slave != curr) {
+                hbresponse->set_slavehostname(slave->hostname);
+                hbresponse->set_slaveport(slave->port);
             } else {
                 hbresponse->set_slavehostname("null");
                 hbresponse->set_slaveport("null");
@@ -151,6 +140,8 @@ class CoordServiceImpl final : public CoordService::Service {
             newServer->synch_hostname = "null";
             newServer->synch_port = "null";
             newServer->missed_heartbeat = false;
+            newServer->last_heartbeat = getTimeNow();
+            newServer->active = true;
 
             clusters[serverinfo->clusterid()-1].push_back(newServer);
 
@@ -158,11 +149,16 @@ class CoordServiceImpl final : public CoordService::Service {
 
             std::string newDir = "data/cluster" + std::to_string(newServer->clusterID) + "/machine" + std::to_string(newServer->machineID);
             std::filesystem::create_directories(newDir);
+
+            hbresponse->set_master(false);
+            hbresponse->set_synchport("null");
+            hbresponse->set_slavehostname("null");
+            hbresponse->set_slaveport("null");
         }
         //eif the cluster is empty, add it as a master
         else {
             //create new z node with server info and insert it into cluster
-            std::cerr << "Empty:" << check1 << " Contained:" << check2 << std::endl;
+            //std::cerr << "Empty:" << check1 << " Contained:" << check2 << std::endl;
             std::cout << "New master server, cluster" << serverinfo->clusterid() << " server" << serverinfo->machineid() << std::endl;
 
 
@@ -175,18 +171,27 @@ class CoordServiceImpl final : public CoordService::Service {
             newServer->synch_hostname = "null";
             newServer->synch_port = "null";
             newServer->missed_heartbeat = false;
+            newServer->last_heartbeat = getTimeNow();
+            newServer->active = true;
 
-            clusters[newServer->clusterID].push_back(newServer);
+
+            clusters[newServer->clusterID-1].push_back(newServer);
 
             cluster_mutex.unlock();
 
-            master_mutex.lock();
-            masters[newServer->clusterID] = newServer;
-            master_mutex.unlock();
+            // masters_mutex.lock();
+            // masters[newServer->clusterID-1] = newServer;
+            // masters_mutex.unlock();
 
             std::string newDir = "data/cluster" + std::to_string(newServer->clusterID) + "/machine" + std::to_string(newServer->machineID);
             std::filesystem::create_directories(newDir);
+
+            hbresponse->set_master(true);
+            hbresponse->set_synchport("null");
+            hbresponse->set_slavehostname("null");
+            hbresponse->set_slaveport("null");
         }
+
 
 
         return Status::OK;
@@ -214,7 +219,7 @@ class CoordServiceImpl final : public CoordService::Service {
 
         zNode* z = clusters[clusterId][0];
         //if server isn't active, return a -1
-        if (z == nullptr || !z->isActive()) {
+        if (z == nullptr || !z->active) {
             serverinfo->set_machineid(-1);
         }
         //if server is active, reply with its values
@@ -271,9 +276,9 @@ class CoordServiceImpl final : public CoordService::Service {
 
     private:
 
-    bool clusterContains(int clusterIndex, int id) {
-        for (zNode* z : clusters[clusterIndex]) {
-            if (z->machineID == id) {
+    bool clusterContains(int cluster_id, int machine_id) {
+        for (zNode* z : clusters[cluster_id-1]) {
+            if (z->machineID == machine_id) {
                 return true;
             }
         }
@@ -283,6 +288,24 @@ class CoordServiceImpl final : public CoordService::Service {
     zNode* getNode(int cluster_id, int machine_id) {
         for (zNode* z : clusters[cluster_id-1]) {
             if (z->machineID == machine_id) {
+                return z;
+            }
+        }
+        return nullptr;
+    }
+
+    zNode* getMaster(int cluster_id) {
+        for (zNode* z : clusters[cluster_id-1]) {
+            if (z->master) {
+                return z;
+            }
+        }
+        return nullptr;
+    }
+
+    zNode* getSlave(int cluster_id) {
+        for (zNode* z : clusters[cluster_id-1]) {
+            if (!z->master && z->active) {
                 return z;
             }
         }
@@ -358,13 +381,24 @@ void checkHeartbeat(){
         cluster_mutex.lock();
 
         // iterating through the clusters vector of vectors of znodes
-        for (auto& c : clusters){
-            for(auto& s : c){
+        for (std::vector<zNode*> c : clusters){
+            for (zNode* s : c) {
                 if(difftime(getTimeNow(),s->last_heartbeat)>10){
-                    std::cout << "missed heartbeat from cluster" << s->clusterID << " server" << s->machineID << std::endl;
+                    std::cerr << "missed heartbeat from cluster" << s->clusterID << " server" << s->machineID << std::endl;
                     if(!s->missed_heartbeat){
                         s->missed_heartbeat = true;
                         s->last_heartbeat = getTimeNow();
+                    } else {
+                        s->active = false;
+                        if (s->master) {
+                            for (zNode* z : clusters[s->clusterID-1]) {
+                                if (!z->master) {
+                                    std::cerr << "promoting cluster" << z->clusterID << " server" << z->machineID << std::endl;
+                                    z->master = true;
+                                }
+                            }
+                            s->master = false;
+                        }
                     }
                 }
             }
@@ -372,10 +406,10 @@ void checkHeartbeat(){
 
         cluster_mutex.unlock();
 
-        sleep(10);
+
+        sleep(4);
     }
 }
-
 
 std::time_t getTimeNow(){
     return std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
