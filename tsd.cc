@@ -100,12 +100,13 @@ std::vector<Client*> client_db;
 
 bool master;
 
-std::string synchPort;
+std::string synchPort = "null";
 
-std::string slaveHostname;
-std::String slavePort;
+std::string slaveHostname = "null";
+std::string slavePort = "null";
 
-std::unique_ptr<SynchService::Stub> stub_coord
+std::unique_ptr<SynchService::Stub> stub_synch;
+std::unique_ptr<SNSService::Stub> stub_slave;
 
 
 
@@ -251,10 +252,13 @@ class SNSServiceImpl final : public SNSService::Service {
 
     }
 
+    //NOTE: FOR 2.2 REQUIREMENTS, THE LOGIC THAT STOPPED TWO USERS FROM SIGNING IN WHEN CONNECTED HAS BEED REMOVED
+    //IN ORDER TO RESTORE THIS, FOLLOW COMMENTS. IN ORDER TO PROPERLY INSTALL  THE LOGIC, CLIENTS MUST SIGNAL A LOGOUT INSTEAD OF CTRL+C.
+
     //If client is alread logged in then return they can't log in here, otherwise log them in
     //The F and S are used to communicate with the client which branch occured
     if (c->connected) {
-      reply->set_msg("F");
+      reply->set_msg("S"); //RESTORE TO "F"
     } else {
       reply->set_msg("S");
       c->connected = true;
@@ -480,6 +484,7 @@ void RunServer(int clusterId, int serverId, std::string coordIP,
   //create server info object to be repeatedly sent to coordinator
   ServerInfo serverInfo;
   serverInfo.set_clusterid(clusterId);
+  serverInfo.set_machineid(serverId);
   serverInfo.set_hostname("0.0.0.0");
   serverInfo.set_port(port_no);
   
@@ -491,6 +496,15 @@ void RunServer(int clusterId, int serverId, std::string coordIP,
       ClientContext context;
       grpc::Status status = stub_coord->Heartbeat(&context, serverInfo, &response);
       //#####ToDo: alter master status, slave/synchID based on response
+      master = response.master();
+      if (synchPort == "null" && response.synchport() != "null") {
+        synchPort = response.synchport();
+      }
+      if (slaveHostname == "null" && response.slavehostname() != "null") {
+        slaveHostname = response.slavehostname();
+        slavePort = response.slaveport();
+      }
+      std::cerr << "Now... master:" << master << " synchPort: " << synchPort << " slaveIP: " << slaveHostname << ":" <<slavePort << std::endl;
 
 
       sleep(5);

@@ -355,9 +355,9 @@ IServerInfo Client::GetServer() {
   serve.grpc_status = status;
   serve.comm_status = IStatus::FAILURE_UNKNOWN; //this is changed as long as server was successfully found
   if(serve.grpc_status.ok()) {
-    if (serverInfo.serverid() != -1) {
+    if (serverInfo.machineid() != -1) {
       serve.comm_status = IStatus::SUCCESS;
-      serve.serverID = serverInfo.serverid();
+      serve.serverID = serverInfo.machineid();
       serve.hostname = serverInfo.hostname();
       serve.port = serverInfo.port();
     }

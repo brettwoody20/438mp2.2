@@ -65,7 +65,7 @@ class SynchServiceImpl final : public SynchService::Service {
     -passed a new client, add it to the list of clients in machine directory
     -add "u1" as "1" in file
     */
-    Status newClientSynch (ServerContext* context, const ID* id, Confrimation* confirmation) {
+    Status newClientSynch (ServerContext* context, const ID* id, Confirmation* confirmation) {
 
         return Status::OK;
     }
@@ -74,7 +74,7 @@ class SynchServiceImpl final : public SynchService::Service {
     -passed u1, u2 where u1 is following u2
     -add u1 to u2 list of followers in u2/followers.txt
     */
-    Status newFollowSynch (ServerContext* context, const Users* users, Confrimation* confrimation) {
+    Status newFollowSynch (ServerContext* context, const Users* users, Confirmation* confirmation) {
 
         return Status::OK;
     }
@@ -83,7 +83,7 @@ class SynchServiceImpl final : public SynchService::Service {
     -passed a post from u1
     -for all users, ux, that follow u1, add it to their timeline: ux/timeline.txt
     */
-    Status newPostSynch (ServerContext* context, const Post* post, Confrimation* confrimation) {
+    Status newPostSynch (ServerContext* context, const Post* post, Confirmation* confirmation) {
         
         return Status::OK;
     }
@@ -93,7 +93,7 @@ class SynchServiceImpl final : public SynchService::Service {
     -call coord rpc getAllSynchs
     -call rpc newClientSynch on all servers returned
     */
-    Status newClientServ (ServerContext* context, const ID* id, Confrimation* confirmation) {
+    Status newClientServ (ServerContext* context, const ID* id, Confirmation* confirmation) {
 
         return Status::OK;
     }
@@ -103,7 +103,7 @@ class SynchServiceImpl final : public SynchService::Service {
     -call coord rpc getSynchs and pass u2
     -call rpc newFollowSynch on the servers returned
     */
-    Status newFollowServ (ServerContext* context, const Users* users, Confrimation* confrimation) {
+    Status newFollowServ (ServerContext* context, const Users* users, Confirmation* confirmation) {
 
         return Status::OK;
     }
@@ -114,52 +114,52 @@ class SynchServiceImpl final : public SynchService::Service {
     -calls coord rpc getSynchs and pass list of followers
     -calls newPostSynch on all the servers returned
     */
-    Status newPostServ (ServerContext* context, const Post* post, Confrimation* confrimation) {
+    Status newPostServ (ServerContext* context, const Post* post, Confirmation* confirmation) {
         
         return Status::OK;
     }
     
     
-    Status GetAllUsers(ServerContext* context, const Confirmation* confirmation, AllUsers* allusers) override{
-        //std::cout<<"Got GetAllUsers"<<std::endl;
-        std::vector<std::string> list = get_all_users_func(synchID);
-        //package list
-        for(auto s:list){
-            allusers->add_users(s);
-        }
+    // Status GetAllUsers(ServerContext* context, const Confirmation* confirmation, AllUsers* allusers) override{
+    //     //std::cout<<"Got GetAllUsers"<<std::endl;
+    //     std::vector<std::string> list = get_all_users_func(synchID);
+    //     //package list
+    //     for(auto s:list){
+    //         allusers->add_users(s);
+    //     }
 
-        //return list
-        return Status::OK;
-    }
+    //     //return list
+    //     return Status::OK;
+    // }
 
-    Status GetTLFL(ServerContext* context, const ID* id, TLFL* tlfl){
-        //std::cout<<"Got GetTLFL"<<std::endl;
-        int clientID = id->id();
+    // Status GetTLFL(ServerContext* context, const ID* id, TLFL* tlfl){
+    //     //std::cout<<"Got GetTLFL"<<std::endl;
+    //     int clientID = id->id();
 
-        std::vector<std::string> tl = get_tl_or_fl(synchID, clientID, true);
-        std::vector<std::string> fl = get_tl_or_fl(synchID, clientID, false);
+    //     std::vector<std::string> tl = get_tl_or_fl(synchID, clientID, true);
+    //     std::vector<std::string> fl = get_tl_or_fl(synchID, clientID, false);
 
-        //now populate TLFL tl and fl for return
-        for(auto s:tl){
-            tlfl->add_tl(s);
-        }
-        for(auto s:fl){
-            tlfl->add_fl(s);
-        }
-        tlfl->set_status(true); 
+    //     //now populate TLFL tl and fl for return
+    //     for(auto s:tl){
+    //         tlfl->add_tl(s);
+    //     }
+    //     for(auto s:fl){
+    //         tlfl->add_fl(s);
+    //     }
+    //     tlfl->set_status(true); 
 
-        return Status::OK;
-    }
+    //     return Status::OK;
+    // }
 
-    Status ResynchServer(ServerContext* context, const ServerInfo* serverinfo, Confirmation* c){
-        std::cout<<serverinfo->type()<<"("<<serverinfo->serverid()<<") just restarted and needs to be resynched with counterpart"<<std::endl;
-        std::string backupServerType;
+    // Status ResynchServer(ServerContext* context, const ServerInfo* serverinfo, Confirmation* c){
+    //     std::cout << "Server " <<"("<<serverinfo->machineid()<<") just restarted and needs to be resynched with counterpart"<<std::endl;
+    //     std::string backupServerType;
 
-        // YOUR CODE HERE
+    //     // YOUR CODE HERE
 
 
-        return Status::OK;
-    }
+    //     return Status::OK;
+    // }
 };
 
 void RunServer(std::string coordIP, std::string coordPort, std::string port_no, int synchID){
@@ -224,61 +224,61 @@ int main(int argc, char** argv) {
 }
 
 void run_synchronizer(std::string coordIP, std::string coordPort, std::string port, int synchID){
-    //setup coordinator stub
-    //std::cout<<"synchronizer stub"<<std::endl;
-    std::string target_str = coordIP + ":" + coordPort;
-    std::unique_ptr<CoordService::Stub> coord_stub_;
-    coord_stub_ = std::unique_ptr<CoordService::Stub>(CoordService::NewStub(grpc::CreateChannel(target_str, grpc::InsecureChannelCredentials())));
-    //std::cout<<"MADE STUB"<<std::endl;
+//     //setup coordinator stub
+//     //std::cout<<"synchronizer stub"<<std::endl;
+//     std::string target_str = coordIP + ":" + coordPort;
+//     std::unique_ptr<CoordService::Stub> coord_stub_;
+//     coord_stub_ = std::unique_ptr<CoordService::Stub>(CoordService::NewStub(grpc::CreateChannel(target_str, grpc::InsecureChannelCredentials())));
+//     //std::cout<<"MADE STUB"<<std::endl;
 
-    ServerInfo msg;
-    Confirmation c;
-    grpc::ClientContext context;
+//     ServerInfo msg;
+//     Confirmation c;
+//     grpc::ClientContext context;
 
-    msg.set_serverid(synchID);
-    msg.set_hostname("127.0.0.1");
-    msg.set_port(port);
-    msg.set_type("follower");
+//     msg.set_serverid(synchID);
+//     msg.set_hostname("127.0.0.1");
+//     msg.set_port(port);
+//     msg.set_type("follower");
 
-    //send init heartbeat
+//     //send init heartbeat
 
-    //TODO: begin synchronization process
-    while(true){
-        //change this to 30 eventually
-        sleep(20);
-        //synch all users file 
-            //get list of all followers
+//     //TODO: begin synchronization process
+//     while(true){
+//         //change this to 30 eventually
+//         sleep(20);
+//         //synch all users file 
+//             //get list of all followers
 
-            // YOUR CODE HERE
-            //set up stub
-            //send each a GetAllUsers request
-            //aggregate users into a list
-            //sort list and remove duplicates
+//             // YOUR CODE HERE
+//             //set up stub
+//             //send each a GetAllUsers request
+//             //aggregate users into a list
+//             //sort list and remove duplicates
 
-            // YOUR CODE HERE
+//             // YOUR CODE HERE
 
-            //for all the found users
-            //if user not managed by current synch
-            // ...
+//             //for all the found users
+//             //if user not managed by current synch
+//             // ...
  
-            // YOUR CODE HERE
+//             // YOUR CODE HERE
 
-	    //force update managed users from newly synced users
-            //for all users
-            for(auto i : aggregated_users){
-                //get currently managed users
-                //if user IS managed by current synch
-                    //read their follower lists
-                    //for followed users that are not managed on cluster
-                    //read followed users cached timeline
-                    //check if posts are in the managed tl
-                    //add post to tl of managed user    
+// 	    //force update managed users from newly synced users
+//             //for all users
+//             for(auto i : aggregated_users){
+//                 //get currently managed users
+//                 //if user IS managed by current synch
+//                     //read their follower lists
+//                     //for followed users that are not managed on cluster
+//                     //read followed users cached timeline
+//                     //check if posts are in the managed tl
+//                     //add post to tl of managed user    
             
-                     // YOUR CODE HERE
-                    }
-                }
-            }
-    }
+//                      // YOUR CODE HERE
+//                     }
+//                 //}
+//             //}
+//     }
     return;
 }
 

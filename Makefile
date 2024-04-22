@@ -3,7 +3,7 @@
 
 PROTOBUF_UTF8_RANGE_LINK_LIBS = -lutf8_validity
 
-export PKG_CONFIG_PATH = /home/csce438/.local/lib/pkgconfig:/home/csce438/grpc/third_party/re2:/home/csce662/.local/share/pkgconfig/
+export PKG_CONFIG_PATH = /home/csce438/.local/lib/pkgconfig:/home/csce438/grpc/third_party/re2:/home/csce438/.local/share/pkgconfig/
 
 
 HOST_SYSTEM = $(shell uname | cut -f 1 -d_)
@@ -56,7 +56,7 @@ synchronizer: coordinator.pb.o coordinator.grpc.pb.o sns.pb.o sns.grpc.pb.o sync
 	$(PROTOC) -I $(PROTOS_PATH) --cpp_out=. $<
 
 clean:
-	rm -f *.txt *.o *.pb.cc *.pb.h tsc tsd coordinator synchronizer
+	rm -r data -f *.txt *.o *.pb.cc *.pb.h tsc tsd coordinator synchronizer
 
 
 # The following is to test your system and ensure a smoother experience.
