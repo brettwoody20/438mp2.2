@@ -146,7 +146,7 @@
             if (status.ok()) {
                 std::unique_ptr<SynchService::Stub> synch_stub;
 
-                std::cerr << serverList.hostname().size() << "synchronizers returned by coord" << std::endl;
+                //std::cerr << serverList.hostname().size() << "synchronizers returned by coord" << std::endl;
 
                 for (int i = 0; i < serverList.hostname().size(); i++) {
                     synch_stub = std::unique_ptr<SynchService::Stub>(SynchService::NewStub(grpc::CreateChannel(serverList.hostname()[i]+":"+serverList.port()[i], grpc::InsecureChannelCredentials())));
@@ -176,7 +176,7 @@
             if (status.ok()) {
                 std::unique_ptr<SynchService::Stub> synch_stub;
 
-                std::cerr << serverList.hostname().size() << "synchronizers returned by coord" << std::endl;
+                std::cerr << serverList.hostname().size() << " synchronizers returned by coord" << std::endl;
 
                 for (int i = 0; i < serverList.hostname().size(); i++) {
                     synch_stub = std::unique_ptr<SynchService::Stub>(SynchService::NewStub(grpc::CreateChannel(serverList.hostname()[i]+":"+serverList.port()[i], grpc::InsecureChannelCredentials())));
@@ -216,6 +216,8 @@
             if (status.ok()) {
                 std::unique_ptr<SynchService::Stub> synch_stub;
 
+                std::cerr<< serverList.hostname().size() << " synchs from coord" << std::endl;
+
                 for (int i = 0; i < serverList.hostname().size(); i++) {
                     synch_stub = std::unique_ptr<SynchService::Stub>(SynchService::NewStub(grpc::CreateChannel(serverList.hostname()[i]+":"+serverList.port()[i], grpc::InsecureChannelCredentials())));
                     Confirmation check;
@@ -229,46 +231,6 @@
         }
 
 
-        // Status GetAllUsers(ServerContext* context, const Confirmation* confirmation, AllUsers* allusers) override{
-        //     //std::cout<<"Got GetAllUsers"<<std::endl;
-        //     std::vector<std::string> list = get_all_users_func(synchID);
-        //     //package list
-        //     for(auto s:list){
-        //         allusers->add_users(s);
-        //     }
-
-        //     //return list
-        //     return Status::OK;
-        // }
-
-        // Status GetTLFL(ServerContext* context, const ID* id, TLFL* tlfl){
-        //     //std::cout<<"Got GetTLFL"<<std::endl;
-        //     int clientID = id->id();
-
-        //     std::vector<std::string> tl = get_tl_or_fl(synchID, clientID, true);
-        //     std::vector<std::string> fl = get_tl_or_fl(synchID, clientID, false);
-
-        //     //now populate TLFL tl and fl for return
-        //     for(auto s:tl){
-        //         tlfl->add_tl(s);
-        //     }
-        //     for(auto s:fl){
-        //         tlfl->add_fl(s);
-        //     }
-        //     tlfl->set_status(true); 
-
-        //     return Status::OK;
-        // }
-
-        // Status ResynchServer(ServerContext* context, const ServerInfo* serverinfo, Confirmation* c){
-        //     std::cout << "Server " <<"("<<serverinfo->machineid()<<") just restarted and needs to be resynched with counterpart"<<std::endl;
-        //     std::string backupServerType;
-
-        //     // YOUR CODE HERE
-
-
-        //     return Status::OK;
-        // }
 
         int appendText(std::string text, std::string filename) {
 
@@ -312,7 +274,7 @@
         //adds a post to the file by reading the file into memory and then re-writing it with the post at the top
         int appendPost(std::string ffo, std::string filename) {
 
-            std::cerr << "writing to " << filename << std::endl;
+            std::cerr << "writing post " << std::endl;
 
             sem_t *sem = sem_open(semName.c_str(), O_CREAT , 0644, 1);
             if (sem == SEM_FAILED) {
@@ -356,6 +318,10 @@
 
             // Close the semaphore
             sem_close(sem);
+
+            std::cerr << "Finished writing post "  << std::endl;
+
+
 
 
             return 0;
@@ -562,10 +528,9 @@
 
         file.close();
 
-        std::cout<<"File: "<<filename<<" has users:"<<std::endl;
-        for(int i = 0; i<users.size(); i++){
-        std::cout<<users[i]<<std::endl;
-        }
+        // for(int i = 0; i<users.size(); i++){
+        // std::cout<<users[i]<<std::endl;
+        // }
 
         return users;
     }
