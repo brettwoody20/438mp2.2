@@ -32,6 +32,7 @@
  */
 
 #include <ctime>
+#include <sys/stat.h>
 
 #include <google/protobuf/timestamp.pb.h>
 #include <google/protobuf/duration.pb.h>
@@ -101,6 +102,8 @@ struct Client {
 //Vector that stores every client (and their data)
 std::vector<Client*> client_db;
 
+std::vector<Client*> client_list;
+
 
 int clusterID;
 int machineID;
@@ -143,7 +146,7 @@ class SNSServiceImpl final : public SNSService::Service {
     }
 
     //add all clients' usernames to reply
-    for (Client* client : client_db) {
+    for (Client* client : client_list) {
       list_reply->add_all_users(client->username);
     }
 
@@ -169,8 +172,8 @@ class SNSServiceImpl final : public SNSService::Service {
     **********/
     
     //first validate that both users exist and are seperate users
-    Client* u1 = getClient(request->username());
-    Client* u2 = getClient(request->arguments()[0]);
+    Client* u1 = getClient_all(request->username());
+    Client* u2 = getClient_all(request->arguments()[0]);
 
     if (u1 == nullptr || u2 == nullptr || u1 == u2) {
       reply->set_msg("I");
@@ -178,16 +181,25 @@ class SNSServiceImpl final : public SNSService::Service {
     }
 
 
-    //if both users exist and are different, then add them to appropriate following/followers list (u1 follows u2)
+    //add u2 to u1 following
     u1->client_following.push_back(u2);
-    u2->client_followers.push_back(u1);
 
     std::string machineDir = "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + "/";
-
     appendText(u2->username, machineDir + "u" + u1->username + "/following");
+
+    //if u2 is in cluster
     if (containsUser(u2->username)) {
+      u2->client_followers.push_back(u1);
       appendText(u1->username, machineDir + "u" + u2->username + "/followers");
-    } else if (master) {
+
+      if (master && slaveHostname != "null") {
+        ClientContext context2;
+        Reply reply2;
+        stub_slave->Follow(&context2, *request, &reply2);
+      }
+    } 
+    //if u2 is outside of cluster (only do anything else if also master)
+    else if (master) {
       //make call to slave for u1 following u2
       //make call to synchronizer for u1 following u2
       if (slaveHostname != "null") {
@@ -293,6 +305,21 @@ class SNSServiceImpl final : public SNSService::Service {
       //std::cerr << "adding client to local files" <<std::endl;
 
       appendText(c->username, "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + "/clients");
+
+      //resync client_list
+      std::vector<std::string> newClients = get_lines_from_file_pvt("data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + "/clients.txt");
+      //delete and clear client list
+      for (Client* c : client_list) {
+        delete c;
+      }
+      client_list.clear();
+
+      //add new usernames to client_list
+      for (std::string usernm: newClients) {
+        Client* newC = new Client;
+        newC->username = usernm;
+        client_list.push_back(newC);
+      }
       
       //std::cerr << "added client to local files" << std::endl;
       //if master make call to slave and synchronizer that user logged in
@@ -408,6 +435,20 @@ class SNSServiceImpl final : public SNSService::Service {
         }
       }
       return ret;
+    }
+
+    Client* getClient_all(std::string username) {
+      for (Client* c1 : client_db) {
+        if (c1->username == username) {
+          return c1;
+        }
+      }
+      for (Client* c2 : client_list) {
+        if (c2->username == username) {
+          return c2;
+        }
+      }
+      return nullptr;
     }
 
     //adds a post to the file by reading the file into memory and then re-writing it with the post at the top
@@ -569,7 +610,7 @@ class SNSServiceImpl final : public SNSService::Service {
       return ret;
     }
 
-    std::vector<std::string> get_lines_from_file(std::string filename){
+    std::vector<std::string> get_lines_from_file_pvt(std::string filename){
       std::vector<std::string> users;
       std::string user;
       std::ifstream file; 
@@ -597,6 +638,7 @@ class SNSServiceImpl final : public SNSService::Service {
       return users;
     }
 
+
     bool containsUser(std::string username) {
       for (auto c : client_db) {
         if (c->username == username) {
@@ -617,6 +659,48 @@ class SNSServiceImpl final : public SNSService::Service {
 
 
 };
+
+Client* getClient_all2(std::string username) {
+      for (Client* c1 : client_db) {
+        if (c1->username == username) {
+          return c1;
+        }
+      }
+      for (Client* c2 : client_list) {
+        if (c2->username == username) {
+          return c2;
+        }
+      }
+      return nullptr;
+    }
+
+std::vector<std::string> get_lines_from_file(std::string filename){
+  std::vector<std::string> users;
+  std::string user;
+  std::ifstream file; 
+  file.open(filename);
+  if(file.peek() == std::ifstream::traits_type::eof()){
+    //return empty vector if empty file
+    //std::cout<<"returned empty vector bc empty file"<<std::endl;
+    file.close();
+    return users;
+  }
+  while(file){
+    getline(file,user);
+
+    if(!user.empty())
+      users.push_back(user);
+  } 
+
+  file.close();
+
+  //std::cout<<"File: "<<filename<<" has users:"<<std::endl;
+  /*for(int i = 0; i<users.size(); i++){
+    std::cout<<users[i]<<std::endl;
+  }*/ 
+
+  return users;
+}
 
 
 void RunServer(int clusterId, int serverId, std::string coordIP,
@@ -672,6 +756,69 @@ void RunServer(int clusterId, int serverId, std::string coordIP,
     //for each user
       //if any of their files have been updateed in last 20 seconds
         //read that file into memory (following, followers, timeline)
+  std::thread synchronize([]() {
+    std::string machineDir = "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID);
+    namespace fs = std::filesystem;
+    std::vector<std::string> newClients;
+    
+    while(1) {
+      std::cerr<<"starting resync process"<<std::endl;
+      //synch clients and followers
+      struct stat clientFileInfo;
+      if (stat((machineDir + "/clients.txt").c_str(), &clientFileInfo) == 0) {
+        auto now = std::time(nullptr);
+        auto clientsLastModified = clientFileInfo.st_mtime;
+        
+        // Check if the file was modified in the last 20 second
+        if (now - clientsLastModified < 15) {
+          std::cerr<<"synching clients..."<<std::endl;
+          newClients = get_lines_from_file(machineDir+"/clients.txt");
+          //delete and clear client list
+          for (Client* c : client_list) {
+            delete c;
+          }
+          client_list.clear();
+
+          //add new usernames to client_list
+          for (std::string usernm: newClients) {
+            Client* newC = new Client;
+            newC->username = usernm;
+            client_list.push_back(newC);
+          }
+        }
+      }
+
+      //synch followers
+      for (Client* c : client_db) {
+        struct stat tempFileInfo;
+        if (stat((machineDir + "/u"+c->username+"/followers.txt").c_str(), &tempFileInfo) == 0) {
+            auto now = std::time(nullptr);
+            auto followersLastModified = tempFileInfo.st_mtime;
+
+            if (now - followersLastModified < 15) {
+              std::cerr<<"synching followers..."<<std::endl;
+              std::vector<std::string> newFollowers = get_lines_from_file(machineDir + "/u"+c->username+"/followers.txt");
+
+              for (Client* oldFollower : c->client_followers) {
+                delete oldFollower;
+              }
+              c->client_followers.clear();
+
+              for (std::string newFollowerName : newFollowers) {
+                Client* newFollower = getClient_all2(newFollowerName);
+                if (newFollower != nullptr) {
+                  c->client_followers.push_back(newFollower);
+                }
+              }
+            }
+        }
+      }
+      
+
+      sleep(15);
+    }
+
+  });
 
   //CONSTRUCT SERVER ADDRESS FROM NEW ARGUMENTS
   //construct server address
