@@ -50,6 +50,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <thread>
+#include <mutex>
 #include <google/protobuf/util/time_util.h>
 #include <grpc++/grpc++.h>
 #include <glog/logging.h>
@@ -101,8 +102,10 @@ struct Client {
 
 //Vector that stores every client (and their data)
 std::vector<Client*> client_db;
+std::mutex db_mutex;
 
 std::vector<Client*> client_list;
+std::mutex list_mutex;
 
 
 int clusterID;
@@ -131,8 +134,9 @@ class SNSServiceImpl final : public SNSService::Service {
     /*********
     YOUR CODE HERE
     **********/
-
+    db_mutex.lock();
     Client* c = getClient(request->username());
+    db_mutex.unlock();
 
     //if client is for some reason not found, return error message in the reply (followers vector chosen arbitrarily)
     if (c == nullptr) {
@@ -233,9 +237,10 @@ class SNSServiceImpl final : public SNSService::Service {
     /*********
     YOUR CODE HERE
     **********/
-
+    db_mutex.lock();
     Client* u1 = getClient(request->username());
     Client* u2 = getClient(request->arguments()[0]);
+    db_mutex.unlock();
 
     //ensure both usernames exist in database as well as that they are not the same
     if (u1 == nullptr || u2 == nullptr || u1 == u2) {
@@ -280,15 +285,21 @@ class SNSServiceImpl final : public SNSService::Service {
     /*********
     YOUR CODE HERE
     **********/
-
+    std::cerr << "lock1" << std::endl;
+    db_mutex.lock();
+    std::cerr << "lock2" << std::endl;
     Client* c = getClient(request->username());
+    db_mutex.unlock();
+    std::cerr<< "lock3" << std::endl;
 
     //if the client was not found (DNE) then create it and add it to the database
     if (c == nullptr) {
       std::cerr << "adding new user" << std::endl;
       c = new Client;
       c->username = request->username();
+      db_mutex.lock();
       client_db.push_back(c);
+      db_mutex.unlock();
       //create new files to store data about its timeline
       std::string userDir = "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + "/u" + c->username;
       std::cerr << userDir << std::endl;
@@ -361,20 +372,20 @@ class SNSServiceImpl final : public SNSService::Service {
   //-if client posts and is master, use Post rpc to slave
   //-if client posts, synchronize local user files if they are affected, then use newPostServ rpc to synch
   Status Timeline(ServerContext* context, 
-		ServerReaderWriter<Message, Message>* streem) override {
+	    ServerReaderWriter<Message, Message>* streem) override {
     
 
 
     /*********
     YOUR CODE HERE
     **********/
-
     Message m;
     while(streem->Read(&m)) {
-
       //get client and formatted string from message
       std::string username = m.username();
+      db_mutex.lock();
       Client* c = getClient(username);
+      db_mutex.unlock();
       std::string ffo = formatFileOutput(m);
       std::string userDir = "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + 
                     "/u" + username;
@@ -392,22 +403,64 @@ class SNSServiceImpl final : public SNSService::Service {
         }
 
       } else { //any message other than the first
+        std::cerr<<"TL1"<<std::endl;
 
         //add the post to the user's list of posts
         appendPost(ffo, userDir+"/posts");
+        std::cerr<<"TL2"<<std::endl;
 
         //for each of their followers, attempt to write to their stream channel if they are in timeline mode and add the post to their file for their timeline
         for (Client* follower : c->client_followers) {
-          if (follower->stream != nullptr) {
-            follower->stream->Write(m);
+          std::cerr<<"TL3"<<std::endl;
+          if (containsUser(follower->username)) {
+            std::cerr<<"TL4"<<std::endl;
+            if (master && slaveHostname != "null") {
+              std::cerr<<"TL5"<<std::endl;
+              //service call Post to slave
+              ClientContext context2;
+              Reply reply2;
+              stub_slave->PostServ(&context2, m, &reply2);
+            }
+            std::cerr<<"TL6"<<std::endl;
+            std::string followerDir = "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + 
+                      "/u" + follower->username;
+            appendPost(ffo, followerDir+"/timeline");
+            std::cerr<<"TL7"<<std::endl;
+          } else if (master) {
+            std::cerr<<"TL9"<<std::endl;
+            if (slaveHostname != "null") {
+              std::cerr<<"10"<<std::endl;
+              //service call Post to slave
+              ClientContext context2;
+              Reply reply2;
+              stub_slave->PostServ(&context2, m, &reply2);
+            }
+            if (synchPort != "null") {
+              std::cerr<<"11"<<std::endl;
+              ClientContext context3;
+              Post post3;
+              post3.set_username(username);
+              post3.set_post(m.msg());
+              google::protobuf::Timestamp* timestamp_p = new google::protobuf::Timestamp(m.timestamp());
+              post3.set_allocated_timestamp(timestamp_p);
+              Confirmation confirmation3;
+
+              stub_synch->newPostServ(&context3, post3, &confirmation3);
+            }
+            std::cerr<<"TL12"<<std::endl;
           }
-          std::string followerDir = "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + 
-                    "/u" + follower->username;
-          appendPost(ffo, followerDir+"/timeline");
         }
 
       }
     }
+
+    // std::thread writer([streem](){
+    //   while(1) {
+
+
+    //     sleep(20);
+    //   }
+    // })
     
     return Status::OK;
   }
@@ -417,13 +470,30 @@ class SNSServiceImpl final : public SNSService::Service {
   -update u1's posts file
   -update all of u1's followers (that are local) timelines
   */
-  Status Post(ServerContext* context, const Message* message,  Reply* reply) {
+  Status PostServ(ServerContext* context, const Message* message,  Reply* reply) {
+    std::string username = message->username();
+    db_mutex.lock();
+    Client* c = getClient(username);
+    db_mutex.unlock();
+    std::string userDir = "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + 
+                    "/u" + username;
+    std::string ffo = formatFileOutput(*message);
 
+    appendPost(ffo, userDir+"/posts");
+    for (Client* follower : c->client_followers) {
+      std::string followerDir = "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + 
+                                  "/u" + follower->username;
+      appendPost(ffo, followerDir+"/timeline");
+    }
 
     return Status::OK;
   }
 
   private :
+
+    void timelineWriter() {
+
+    }
 
     //returns a pointer to a client in the database given their usernam
     //  ret is nullptr if user is not found
@@ -438,17 +508,23 @@ class SNSServiceImpl final : public SNSService::Service {
     }
 
     Client* getClient_all(std::string username) {
+      db_mutex.lock();
       for (Client* c1 : client_db) {
         if (c1->username == username) {
+          db_mutex.unlock();
           return c1;
         }
       }
+      db_mutex.unlock();
+      list_mutex.lock();
       for (Client* c2 : client_list) {
         if (c2->username == username) {
+          list_mutex.unlock();
           return c2;
         }
       }
       return nullptr;
+      list_mutex.unlock();
     }
 
     //adds a post to the file by reading the file into memory and then re-writing it with the post at the top
@@ -502,6 +578,8 @@ class SNSServiceImpl final : public SNSService::Service {
       // Close the semaphore
       sem_close(sem);
 
+      std::cerr << "Finished writing to " << filename << std::endl;
+
 
       return 0;
     }
@@ -516,7 +594,6 @@ class SNSServiceImpl final : public SNSService::Service {
           return -1;
       }
 
-      std::cerr << "here2" << std::endl;
       // Wait for the semaphore
       if (sem_wait(sem) == -1) {
           std::cerr << "Failed to wait for semaphore" << std::endl;
@@ -524,7 +601,6 @@ class SNSServiceImpl final : public SNSService::Service {
           return -1;
       }
       
-      std::cerr << "here3" << std::endl;
       // Open the file in append mode
       std::ofstream outFile(file, std::ios::app);
       if (outFile.is_open()) {
@@ -660,17 +736,25 @@ class SNSServiceImpl final : public SNSService::Service {
 
 };
 
+
+
 Client* getClient_all2(std::string username) {
+      db_mutex.lock();
       for (Client* c1 : client_db) {
         if (c1->username == username) {
+          db_mutex.unlock();
           return c1;
         }
       }
+      db_mutex.unlock();
+      list_mutex.lock();
       for (Client* c2 : client_list) {
         if (c2->username == username) {
+          list_mutex.unlock();
           return c2;
         }
       }
+      list_mutex.unlock();
       return nullptr;
     }
 
@@ -789,30 +873,50 @@ void RunServer(int clusterId, int serverId, std::string coordIP,
       }
 
       //synch followers
+      std::cerr<<"lock69"<<std::endl;
+      db_mutex.lock();
       for (Client* c : client_db) {
-        struct stat tempFileInfo;
-        if (stat((machineDir + "/u"+c->username+"/followers.txt").c_str(), &tempFileInfo) == 0) {
-            auto now = std::time(nullptr);
-            auto followersLastModified = tempFileInfo.st_mtime;
+        std::cerr<<"S0"<<std::endl;
+        try {
+          struct stat tempFileInfo;
+          if (stat((machineDir + "/u"+c->username+"/followers.txt").c_str(), &tempFileInfo) == 0) {
+              auto now = std::time(nullptr);
+              auto followersLastModified = tempFileInfo.st_mtime;
 
-            if (now - followersLastModified < 15) {
-              std::cerr<<"synching followers..."<<std::endl;
-              std::vector<std::string> newFollowers = get_lines_from_file(machineDir + "/u"+c->username+"/followers.txt");
+              if (now - followersLastModified < 15) {
+                std::cerr<<"synching followers of " << c->username <<std::endl;
+                std::cerr<<"S1"<<std::endl;
+                std::vector<std::string> newFollowers = get_lines_from_file(machineDir + "/u"+c->username+"/followers.txt");
 
-              for (Client* oldFollower : c->client_followers) {
-                delete oldFollower;
-              }
-              c->client_followers.clear();
-
-              for (std::string newFollowerName : newFollowers) {
-                Client* newFollower = getClient_all2(newFollowerName);
-                if (newFollower != nullptr) {
-                  c->client_followers.push_back(newFollower);
+                std::cerr<<"S2"<<std::endl;
+                for (Client* oldFollower : c->client_followers) {
+                  delete oldFollower;
                 }
+                std::cerr<<"S3"<<std::endl;
+                c->client_followers.clear();
+
+                std::cerr<<"S4"<<std::endl;
+                for (std::string newFollowerName : newFollowers) {
+                  std::cerr<<"S5"<<std::endl;
+                  db_mutex.unlock();
+                  Client* newFollower = getClient_all2(newFollowerName);
+                  db_mutex.lock();
+                  if (newFollower != nullptr) {
+                    c->client_followers.push_back(newFollower);
+                  }
+                }
+                std::cerr<<"S6"<<std::endl;
               }
-            }
+              std::cerr<<"S7"<<std::endl;
+          }
+          std::cerr<<"S8"<<std::endl;
+        } catch (...) {
+          continue;
         }
       }
+      std::cerr<<"S9"<<std::endl;
+      db_mutex.unlock();
+      std::cerr<<"lock70"<<std::endl;
       
 
       sleep(15);

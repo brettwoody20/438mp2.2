@@ -45,7 +45,7 @@ service SNSService{
   rpc Timeline (stream Message) returns (stream Message) {} 
 
   //for server
-  rpc Post (Message) returns (Reply) {}
+  rpc PostServ(Message) returns (Reply) {}
 }
 
 message ListReply {
