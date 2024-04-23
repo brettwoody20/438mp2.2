@@ -9,7 +9,10 @@
     #include <vector>
     #include <unordered_set>
     #include <filesystem>
+    #include <fcntl.h>
+    #include <semaphore.h>
     #include <fstream>
+    #include <sstream>
     #include <iostream>
     #include <memory>
     #include <string>
@@ -39,6 +42,7 @@
     using grpc::ServerReaderWriter;
     using grpc::ServerWriter;
     using grpc::Status;
+    using grpc::Channel;
     using csce438::CoordService;
     using csce438::ServerInfo;
     using csce438::Confirmation;
@@ -51,6 +55,8 @@
     int clusterID; //calculated from syncID
     int machineID; //returned from coord
 
+    std::vector<int> client_db;
+
     int synchID = 1;
     std::vector<std::string> get_lines_from_file(std::string);
     void run_synchronizer(std::string,std::string,std::string,int);
@@ -59,6 +65,8 @@
 
     std::unique_ptr<csce438::CoordService::Stub> coordinator_stub;
 
+    std::string semName;
+
     class SynchServiceImpl final : public SynchService::Service {
 
         /*ToDo:
@@ -66,7 +74,9 @@
         -add "u1" as "1" in file
         */
         Status newClientSynch (ServerContext* context, const ID* id, Confirmation* confirmation) {
-
+            
+            appendText(std::to_string(id->id()), "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + "/clients");
+            client_db.push_back(id->id());
             return Status::OK;
         }
 
@@ -75,6 +85,11 @@
         -add u1 to u2 list of followers in u2/followers.txt
         */
         Status newFollowSynch (ServerContext* context, const Users* users, Confirmation* confirmation) {
+            try {
+                appendText(std::to_string(users->users()[0]), 
+                    "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + 
+                    "/u" + std::to_string(users->users()[1]) + "/followers");
+            } catch (...) {}
 
             return Status::OK;
         }
@@ -84,7 +99,28 @@
         -for all users, ux, that follow u1, add it to their timeline: ux/timeline.txt
         */
         Status newPostSynch (ServerContext* context, const Post* post, Confirmation* confirmation) {
-            
+            //get list of active clients
+            std::string filename = "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + 
+                    "/clients.txt";
+            std::vector<std::string> clients = get_lines_from_file(filename);
+            std::vector<std::string> temp;
+            //if that client is  assigned to this cluster and follows u1, add the post to their timeline
+            for (std::string c : clients) {
+                if ( ((std::stoi(c) - 1) % 3 ) + 1 == clusterID) {
+                    temp.clear();
+                    filename = "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + 
+                    "/u" + c + "/following.txt";
+                    temp = get_lines_from_file(filename);
+                    for (std::string following : temp) {
+                        if (following == post->username()) {
+                            std::string text = formatFileOutput(*post);
+                            filename = "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + 
+                                                "/u" + c + "/timeline";
+                            appendPost(text, filename);
+                        }
+                    }
+                }
+            }
             return Status::OK;
         }
 
@@ -173,6 +209,111 @@
 
         //     return Status::OK;
         // }
+
+        int appendText(std::string text, std::string filename) {
+
+            std::string file = filename + ".txt";
+
+
+            sem_t *sem = sem_open(semName.c_str(), O_CREAT , 0644, 1);
+            if (sem == SEM_FAILED) {
+                std::cerr << "Failed to open semaphore" << std::endl;
+                return -1;
+            }
+
+            // Wait for the semaphore
+            if (sem_wait(sem) == -1) {
+                std::cerr << "Failed to wait for semaphore" << std::endl;
+                sem_close(sem);
+                return -1;
+            }
+
+            // Open the file in append mode
+            std::ofstream outFile(file, std::ios::app);
+            if (outFile.is_open()) {
+                outFile << text <<std::endl;
+                outFile.close();
+            } else {
+                std::cerr << "Unable to open file: " << filename << std::endl;
+            }
+
+            // Post the semaphore
+            if (sem_post(sem) == -1) {
+                std::cerr << "Failed to post semaphore" << std::endl;
+            }
+
+            // Close the semaphore
+            sem_close(sem);
+
+
+            return 1;
+        }
+
+        //adds a post to the file by reading the file into memory and then re-writing it with the post at the top
+        int appendPost(std::string ffo, std::string filename) {
+
+            std::cerr << "writing to " << filename << std::endl;
+
+            sem_t *sem = sem_open(semName.c_str(), O_CREAT , 0644, 1);
+            if (sem == SEM_FAILED) {
+                std::cerr << "Failed to open semaphore" << std::endl;
+                return 1;
+            }
+
+            // Wait for the semaphore
+            if (sem_wait(sem) == -1) {
+                std::cerr << "Failed to wait for semaphore" << std::endl;
+                sem_close(sem);
+                return 1;
+            }
+
+            // Open the file for reading
+            std::ifstream inputFile(filename+".txt");
+            if (!inputFile.is_open()) {
+                return 1;
+            }
+
+            // Read the contents of the file into a string
+            std::stringstream buffer;
+            buffer << inputFile.rdbuf();
+            std::string fileContents = buffer.str();
+
+            inputFile.close();
+
+            // Open the file for writing (truncated)
+            std::ofstream outputFile(filename+".txt");
+            if (!outputFile.is_open()) {
+                return 1;
+            }
+
+            // Write the new data at the beginning of the file
+            outputFile << ffo << fileContents;
+
+            // Close the output file
+            outputFile.close();
+
+            // Post the semaphore
+            if (sem_post(sem) == -1) {
+                std::cerr << "Failed to post semaphore" << std::endl;
+            }
+
+            // Close the semaphore
+            sem_close(sem);
+
+
+            return 0;
+        }
+
+        //formats a string og the Message
+        std::string formatFileOutput(const Post& p) {
+            int64_t seconds = p.timestamp().seconds();
+            std::string ret = "T " + std::to_string(seconds) + 
+                        "\nU http://twitter.com/" + p.username() + 
+                        "\nW " + p.post() + "\n";
+            return ret;
+        }
+
+        
     };
 
     void RunServer(std::string coordIP, std::string coordPort, std::string port_no, int synchID){
@@ -204,6 +345,8 @@
         machineID = id.id();
 
         std::cout << "Paired with cluster" << clusterID << " server" << machineID << std::endl;
+
+        semName = "/c"+std::to_string(clusterID)+"m"+std::to_string(machineID);
 
         //set up as server
         //localhost = 127.0.0.1
@@ -362,10 +505,10 @@
 
         file.close();
 
-        //std::cout<<"File: "<<filename<<" has users:"<<std::endl;
-        /*for(int i = 0; i<users.size(); i++){
+        std::cout<<"File: "<<filename<<" has users:"<<std::endl;
+        for(int i = 0; i<users.size(); i++){
         std::cout<<users[i]<<std::endl;
-        }*/ 
+        }
 
         return users;
     }

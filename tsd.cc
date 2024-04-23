@@ -114,6 +114,8 @@ std::string slavePort = "null";
 std::unique_ptr<SynchService::Stub> stub_synch;
 std::unique_ptr<SNSService::Stub> stub_slave;
 
+std::string semName;
+
 
 
 
@@ -274,7 +276,11 @@ class SNSServiceImpl final : public SNSService::Service {
       followingFile.close();
       followerFile.close();
 
+      std::cerr << "adding client to local files" <<std::endl;
+
       appendText(c->username, "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + "/clients");
+      
+      std::cerr << "added client to local files" << std::endl;
       //if master make call to slave and synchronizer that user logged in
     }
 
@@ -314,6 +320,8 @@ class SNSServiceImpl final : public SNSService::Service {
       std::string username = m.username();
       Client* c = getClient(username);
       std::string ffo = formatFileOutput(m);
+      std::string userDir = "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + 
+                    "/u" + username;
 
       //if the clients ServerReaderWriter stream member has not been used initialized (first message) set up timeline
       //  Note: the first message is a dummy message with no actual post, discard it after
@@ -322,7 +330,7 @@ class SNSServiceImpl final : public SNSService::Service {
         c->stream = streem;
 
         //get the last 20 posts of users they follow and send them to client
-        std::vector<Message> posts = getPosts(username+"_timeline", 20);
+        std::vector<Message> posts = getPosts(userDir+"/timeline", 20);
         for (Message message : posts) {
           streem->Write(message);
         }
@@ -330,14 +338,16 @@ class SNSServiceImpl final : public SNSService::Service {
       } else { //any message other than the first
 
         //add the post to the user's list of posts
-        appendPost(ffo, username+"_posts");
+        appendPost(ffo, userDir+"/posts");
 
         //for each of their followers, attempt to write to their stream channel if they are in timeline mode and add the post to their file for their timeline
         for (Client* follower : c->client_followers) {
           if (follower->stream != nullptr) {
             follower->stream->Write(m);
           }
-          appendPost(ffo, follower->username+"_timeline");
+          std::string followerDir = "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + 
+                    "/u" + follower->username;
+          appendPost(ffo, followerDir+"/timeline");
         }
 
       }
@@ -372,6 +382,8 @@ class SNSServiceImpl final : public SNSService::Service {
 
     //adds a post to the file by reading the file into memory and then re-writing it with the post at the top
     int appendPost(std::string ffo, std::string filename) {
+
+      std::cerr << "writing to " << filename << std::endl;
 
       std::string semName = "/c"+std::to_string(clusterID)+"m"+std::to_string(machineID);
 
@@ -431,7 +443,9 @@ class SNSServiceImpl final : public SNSService::Service {
 
       std::string file = filename + ".txt";
 
-      std::string semName = "/c"+std::to_string(clusterID)+"m"+std::to_string(machineID);
+      std::cerr << "adding " << text << " to " << file << std::endl;
+
+      std::cerr << "here1" << std::endl;
 
       sem_t *sem = sem_open(semName.c_str(), O_CREAT , 0644, 1);
       if (sem == SEM_FAILED) {
@@ -439,13 +453,15 @@ class SNSServiceImpl final : public SNSService::Service {
           return -1;
       }
 
+      std::cerr << "here2" << std::endl;
       // Wait for the semaphore
       if (sem_wait(sem) == -1) {
           std::cerr << "Failed to wait for semaphore" << std::endl;
           sem_close(sem);
           return -1;
       }
-
+      
+      std::cerr << "here3" << std::endl;
       // Open the file in append mode
       std::ofstream outFile(file, std::ios::app);
       if (outFile.is_open()) {
@@ -455,14 +471,17 @@ class SNSServiceImpl final : public SNSService::Service {
           std::cerr << "Unable to open file: " << filename << std::endl;
       }
 
+      std::cerr << "here4" << std::endl;
       // Post the semaphore
       if (sem_post(sem) == -1) {
           std::cerr << "Failed to post semaphore" << std::endl;
       }
 
+      std::cerr << "here5" << std::endl;
       // Close the semaphore
       sem_close(sem);
 
+      std::cerr << "here6" << std::endl;
       // Unlink the named semaphore
       sem_unlink(semName.c_str());
 
@@ -685,6 +704,9 @@ int main(int argc, char** argv) {
   log(INFO, "Logging Initialized. Server starting...");
   clusterID = clusterId;
   machineID = serverId;
+  semName = "/c"+std::to_string(clusterID)+"m"+std::to_string(machineID);
+  sem_t *sem = sem_open(semName.c_str(), O_CREAT , 0644, 1);
+  sem_init(sem, 1, 1);
   RunServer(clusterId, serverId, coordIP, coordPort, port);
 
   return 0;

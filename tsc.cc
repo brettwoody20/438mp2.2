@@ -107,7 +107,7 @@ int Client::connectTo()
   }
 
   //create new channel and stub FOR SERVER
-  //std::cout << "Attempting to open channel with server..." << std::endl;
+  std::cerr << "Attempting to open channel with server on port" << server_info.port << std::endl;
   std::string login_info = server_info.hostname + ":" + server_info.port;
   auto serverChan = grpc::CreateChannel(login_info, grpc::InsecureChannelCredentials()); 
   stub_snss = std::make_unique<SNSService::Stub>(serverChan);
@@ -115,6 +115,7 @@ int Client::connectTo()
   IReply reply = Login();
   if (reply.grpc_status.ok()) {
     if (reply.comm_status == IStatus::SUCCESS) {
+      std::cerr << "Logged in" << std::endl;
       return 1;
     }
   }
