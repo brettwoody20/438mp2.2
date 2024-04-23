@@ -19,7 +19,7 @@ service CoordService{
     //returned id is the machine number for the synchronizer
     rpc registerSynch (ServerInfo) returns (ID) {} 
     rpc getSynchs (Users) returns (ServerList) {}
-    rpc getAllSynchs (Confirmation) returns (ServerList) {}
+    rpc getAllSynchs (ID) returns (ServerList) {}
 }
 
 

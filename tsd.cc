@@ -190,6 +190,20 @@ class SNSServiceImpl final : public SNSService::Service {
     } else if (master) {
       //make call to slave for u1 following u2
       //make call to synchronizer for u1 following u2
+      if (slaveHostname != "null") {
+        ClientContext context2;
+        Reply reply2;
+        stub_slave->Follow(&context2, *request, &reply2);
+      }
+      if (synchPort != "null") {
+        ClientContext context3;
+        Users users;
+        users.add_users(std::stoi(u1->username));
+        users.add_users(std::stoi(u2->username));
+        Confirmation confirmation;
+
+        stub_synch->newFollowServ(&context3, users, &confirmation);
+      }
     }
 
     reply->set_msg("S");
@@ -276,12 +290,27 @@ class SNSServiceImpl final : public SNSService::Service {
       followingFile.close();
       followerFile.close();
 
-      std::cerr << "adding client to local files" <<std::endl;
+      //std::cerr << "adding client to local files" <<std::endl;
 
       appendText(c->username, "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + "/clients");
       
-      std::cerr << "added client to local files" << std::endl;
+      //std::cerr << "added client to local files" << std::endl;
       //if master make call to slave and synchronizer that user logged in
+      if (master) {
+        if (slaveHostname != "null") {
+          ClientContext context2;
+          Reply reply2;
+          stub_slave->Login(&context2, *request, &reply2);
+        }
+        if (synchPort != "null") {
+          ClientContext context3;
+          ID id;
+          id.set_id(std::stoi(c->username));
+          Confirmation confirmation;
+
+          stub_synch->newClientServ(&context3, id, &confirmation);
+        }
+      }
     }
 
     //NOTE: FOR 2.2 REQUIREMENTS, THE LOGIC THAT STOPPED TWO USERS FROM SIGNING IN WHEN CONNECTED HAS BEED REMOVED
@@ -363,6 +392,7 @@ class SNSServiceImpl final : public SNSService::Service {
   */
   Status Post(ServerContext* context, const Message* message,  Reply* reply) {
 
+
     return Status::OK;
   }
 
@@ -384,8 +414,6 @@ class SNSServiceImpl final : public SNSService::Service {
     int appendPost(std::string ffo, std::string filename) {
 
       std::cerr << "writing to " << filename << std::endl;
-
-      std::string semName = "/c"+std::to_string(clusterID)+"m"+std::to_string(machineID);
 
       sem_t *sem = sem_open(semName.c_str(), O_CREAT , 0644, 1);
       if (sem == SEM_FAILED) {
@@ -433,8 +461,6 @@ class SNSServiceImpl final : public SNSService::Service {
       // Close the semaphore
       sem_close(sem);
 
-      // Unlink the named semaphore
-      sem_unlink(semName.c_str());
 
       return 0;
     }
@@ -442,10 +468,6 @@ class SNSServiceImpl final : public SNSService::Service {
     int appendText(std::string text, std::string filename) {
 
       std::string file = filename + ".txt";
-
-      std::cerr << "adding " << text << " to " << file << std::endl;
-
-      std::cerr << "here1" << std::endl;
 
       sem_t *sem = sem_open(semName.c_str(), O_CREAT , 0644, 1);
       if (sem == SEM_FAILED) {
@@ -471,19 +493,14 @@ class SNSServiceImpl final : public SNSService::Service {
           std::cerr << "Unable to open file: " << filename << std::endl;
       }
 
-      std::cerr << "here4" << std::endl;
       // Post the semaphore
       if (sem_post(sem) == -1) {
           std::cerr << "Failed to post semaphore" << std::endl;
       }
 
-      std::cerr << "here5" << std::endl;
       // Close the semaphore
       sem_close(sem);
 
-      std::cerr << "here6" << std::endl;
-      // Unlink the named semaphore
-      sem_unlink(semName.c_str());
 
       return 1;
     }
@@ -631,10 +648,18 @@ void RunServer(int clusterId, int serverId, std::string coordIP,
       master = response.master();
       if (synchPort == "null" && response.synchport() != "null") {
         synchPort = response.synchport();
+
+        std::string synch_address = "0.0.0.0:"+synchPort;
+        auto synchChan = grpc::CreateChannel(synch_address, grpc::InsecureChannelCredentials());
+        stub_synch = std::make_unique<SynchService::Stub>(synchChan);
       }
       if (slaveHostname == "null" && response.slavehostname() != "null") {
         slaveHostname = response.slavehostname();
         slavePort = response.slaveport();
+
+        std::string slave_address = slaveHostname+":"+slavePort;
+        auto slaveChan = grpc::CreateChannel(slave_address, grpc::InsecureChannelCredentials());
+        stub_slave = std::make_unique<SNSService::Stub>(slaveChan);
       }
       std::cerr << "Now... master:" << master << " synchPort: " << synchPort << " slaveIP: " << slaveHostname << ":" <<slavePort << std::endl;
 

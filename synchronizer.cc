@@ -74,6 +74,7 @@
         -add "u1" as "1" in file
         */
         Status newClientSynch (ServerContext* context, const ID* id, Confirmation* confirmation) {
+            std::cerr<<"newClientSynch"<<std::endl;
             
             appendText(std::to_string(id->id()), "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + "/clients");
             client_db.push_back(id->id());
@@ -85,6 +86,7 @@
         -add u1 to u2 list of followers in u2/followers.txt
         */
         Status newFollowSynch (ServerContext* context, const Users* users, Confirmation* confirmation) {
+            std::cerr<<"newFollowSynch"<<std::endl;
             try {
                 appendText(std::to_string(users->users()[0]), 
                     "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + 
@@ -99,6 +101,7 @@
         -for all users, ux, that follow u1, add it to their timeline: ux/timeline.txt
         */
         Status newPostSynch (ServerContext* context, const Post* post, Confirmation* confirmation) {
+            std::cerr<<"newPostSynch"<<std::endl;
             //get list of active clients
             std::string filename = "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + 
                     "/clients.txt";
@@ -130,18 +133,27 @@
         -call rpc newClientSynch on all servers returned
         */
         Status newClientServ (ServerContext* context, const ID* id, Confirmation* confirmation) {
+            std::cerr<<"newClientServ"<<std::endl;
 
+            ID id2;
+            id2.set_id(clusterID);
             ServerList serverList;
             ClientContext context2;
 
-            coordinator_stub->getAllSynchs(&context2, *confirmation, &serverList);
+            grpc::Status status = coordinator_stub->getAllSynchs(&context2, id2, &serverList);
 
-            std::unique_ptr<SynchService::Stub> synch_stub;
 
-            for (int i = 0; i < serverList.hostname().size(); i++) {
-                synch_stub = std::unique_ptr<SynchService::Stub>(SynchService::NewStub(grpc::CreateChannel(serverList.hostname()[i]+":"+serverList.port()[i], grpc::InsecureChannelCredentials())));
-                Confirmation check;
-                synch_stub->newClientSynch(&context2, *id, &check);
+            if (status.ok()) {
+                std::unique_ptr<SynchService::Stub> synch_stub;
+
+                std::cerr << serverList.hostname().size() << "synchronizers returned by coord" << std::endl;
+
+                for (int i = 0; i < serverList.hostname().size(); i++) {
+                    synch_stub = std::unique_ptr<SynchService::Stub>(SynchService::NewStub(grpc::CreateChannel(serverList.hostname()[i]+":"+serverList.port()[i], grpc::InsecureChannelCredentials())));
+                    Confirmation check;
+                    ClientContext context3;
+                    synch_stub->newClientSynch(&context3, *id, &check);
+                }
             }
 
             return Status::OK;
@@ -153,6 +165,27 @@
         -call rpc newFollowSynch on the servers returned
         */
         Status newFollowServ (ServerContext* context, const Users* users, Confirmation* confirmation) {
+            std::cerr<<"newFollowServ"<<std::endl;
+            ClientContext context2;
+            Users u2;
+            u2.add_users(users->users()[1]);
+            ServerList serverList;
+
+            grpc::Status status = coordinator_stub->getSynchs(&context2, u2, &serverList);
+
+            if (status.ok()) {
+                std::unique_ptr<SynchService::Stub> synch_stub;
+
+                std::cerr << serverList.hostname().size() << "synchronizers returned by coord" << std::endl;
+
+                for (int i = 0; i < serverList.hostname().size(); i++) {
+                    synch_stub = std::unique_ptr<SynchService::Stub>(SynchService::NewStub(grpc::CreateChannel(serverList.hostname()[i]+":"+serverList.port()[i], grpc::InsecureChannelCredentials())));
+                    Confirmation check;
+                    ClientContext context3;
+                    synch_stub->newFollowSynch(&context3, *users, &check);
+                }
+            }
+
 
             return Status::OK;
         }
@@ -164,6 +197,33 @@
         -calls newPostSynch on all the servers returned
         */
         Status newPostServ (ServerContext* context, const Post* post, Confirmation* confirmation) {
+            std::cerr<<"newPostServ"<<std::endl;
+
+            std::string filename = "data/cluster" + std::to_string(clusterID) + "/machine" + std::to_string(machineID) + 
+                    "/u" + post->username() + "/followers.txt";
+            std::vector<std::string> followers = get_lines_from_file(filename);
+
+            ClientContext context2;
+            Users users;
+            ServerList serverList;
+
+            for (auto f : followers) {
+                users.add_users(std::stoi(f));
+            }
+
+            grpc::Status status = coordinator_stub->getSynchs(&context2, users, &serverList);
+
+            if (status.ok()) {
+                std::unique_ptr<SynchService::Stub> synch_stub;
+
+                for (int i = 0; i < serverList.hostname().size(); i++) {
+                    synch_stub = std::unique_ptr<SynchService::Stub>(SynchService::NewStub(grpc::CreateChannel(serverList.hostname()[i]+":"+serverList.port()[i], grpc::InsecureChannelCredentials())));
+                    Confirmation check;
+                    ClientContext context3;
+                    synch_stub->newPostSynch(&context3, *post, &check);
+                }
+            }
+
             
             return Status::OK;
         }
@@ -259,20 +319,17 @@
                 std::cerr << "Failed to open semaphore" << std::endl;
                 return 1;
             }
-
             // Wait for the semaphore
             if (sem_wait(sem) == -1) {
                 std::cerr << "Failed to wait for semaphore" << std::endl;
                 sem_close(sem);
                 return 1;
             }
-
             // Open the file for reading
             std::ifstream inputFile(filename+".txt");
             if (!inputFile.is_open()) {
                 return 1;
             }
-
             // Read the contents of the file into a string
             std::stringstream buffer;
             buffer << inputFile.rdbuf();

@@ -102,7 +102,7 @@ class CoordServiceImpl final : public CoordService::Service {
         //if cluster is not empty and contains the machineID
         if (check1 && check2) { //serverid currently holds cluster id
             zNode* curr = getNode(serverinfo->clusterid(), serverinfo->machineid());
-            std::cerr << "heartbeat from cluster" << curr->clusterID << " server" << curr->machineID << std::endl;
+            //std::cerr << "heartbeat from cluster" << curr->clusterID << " server" << curr->machineID << std::endl;
             //if the server missed a hearbeat
             if (curr->missed_heartbeat) {
                 //set that it has not missed a heartbeat
@@ -264,28 +264,61 @@ class CoordServiceImpl final : public CoordService::Service {
         return Status::OK;
     }
 
-    Status getSynchs(ServerContext* context, const Users* users, ServerList* serverlist) {
+    Status getSynchs(ServerContext* context, const Users* users, ServerList* serverList) {
+        std::cerr<<"getSynchs called"<<std::endl;
 
         //passed a list of userIDs
 
         //creates an empty list of hostnames and ports (see server List function)
+        std::vector<int> clusterIds;
 
         //for each id
+        for (auto user : users->users()) {
+            //calculate the cluster that the id is in and if it has not already been added, add it
+            int clusterId = ((user -1) % 3 ) + 1;
+            if (std::count(clusterIds.begin(), clusterIds.end(), clusterId) == 0) {
+                clusterIds.push_back(clusterId);
+            }
+        }
 
-            //calculate the cluster that the id is in
-
-            //add the IP address of each synchronizer in that cluster to the lists
+        cluster_mutex.lock();
+        for  (int ids : clusterIds) {
+            for (zNode* machine : clusters[ids-1]) {
+                if (machine->synch_hostname != "null") {
+                    serverList->add_hostname(machine->synch_hostname);
+                    serverList->add_port(machine->synch_port);
+                }
+            }
+        }
+        cluster_mutex.unlock();
 
         //insert those lists into serverlist (again see server's List function)
+        std::cerr<<"getSynchs Completed"<<std::endl;
 
         return Status::OK;
     }
 
-    Status getAllSynchs (ServerContext* context, const Confirmation* confrimation, ServerList* ServerList) {
+    Status getAllSynchs (ServerContext* context, const ID* id, ServerList* serverList) {
+        std::cerr<<"getAllSynchs Called from cluster " << id->id() <<std::endl;
 
         //for each cluster
             //for each machine
                 //add the synch hostname and port to serverList (See Server's List function)
+        cluster_mutex.lock();
+        for (int c = 0; c < 3; c++) {
+            if (c != id->id()-1) {
+                for (zNode* machine : clusters[c]) {
+                    if (machine->synch_hostname != "null") {
+                        std::cerr << "adding port " << machine->synch_port << " from cluster " << c+1 << std::endl;
+                        serverList->add_hostname(machine->synch_hostname);
+                        serverList->add_port(machine->synch_port);
+                    }
+                }
+            }
+        }
+        cluster_mutex.unlock();
+
+        std::cerr<<"getAllSynchs Completed"<<std::endl;
 
         return Status::OK;
     }
@@ -400,7 +433,7 @@ void checkHeartbeat(){
         for (std::vector<zNode*> c : clusters){
             for (zNode* s : c) {
                 if(difftime(getTimeNow(),s->last_heartbeat)>10){
-                    std::cerr << "missed heartbeat from cluster" << s->clusterID << " server" << s->machineID << std::endl;
+                    //std::cerr << "missed heartbeat from cluster" << s->clusterID << " server" << s->machineID << std::endl;
                     if(!s->missed_heartbeat){
                         s->missed_heartbeat = true;
                         s->last_heartbeat = getTimeNow();
